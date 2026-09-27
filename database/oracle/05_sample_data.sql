@@ -1,1 +1,1 @@
--- SmartMove Oracle sample data
+-- Sample data is maintained in 03_sample_data.sql as requested by the setup order.
