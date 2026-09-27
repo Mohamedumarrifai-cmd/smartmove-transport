@@ -1,1 +1,1 @@
--- SmartMove Oracle business reports
+-- Business reports are maintained in 07_reports.sql as requested by the setup order.
