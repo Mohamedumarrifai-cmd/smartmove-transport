@@ -1,1 +1,1 @@
--- SmartMove Oracle functions
+-- Functions are maintained in 05_functions.sql as requested by the setup order.

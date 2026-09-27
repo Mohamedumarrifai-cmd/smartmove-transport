@@ -1,1 +1,1 @@
--- SmartMove Oracle cursors
+-- Cursor procedure is maintained in 06_cursors.sql as requested by the setup order.

@@ -1,1 +1,1 @@
--- SmartMove Oracle procedures
+-- Procedures are maintained in 04_procedures.sql as requested by the setup order.
