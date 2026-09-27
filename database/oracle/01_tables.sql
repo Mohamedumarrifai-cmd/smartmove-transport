@@ -1,0 +1,1 @@
+-- SmartMove Oracle tables and constraints
