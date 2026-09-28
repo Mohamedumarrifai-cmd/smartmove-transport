@@ -5,22 +5,42 @@ require_once __DIR__ . '/../helpers/oracle-crud.php';
 header('Content-Type: application/json; charset=utf-8');
 
 try {
-	require_once __DIR__ . '/../config/database-oracle.php';
 	$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 	if ($method === 'OPTIONS') {
 		http_response_code(204);
 		exit;
 	}
+	if (session_status() !== PHP_SESSION_ACTIVE) {
+		session_start();
+	}
+	$passenger = $_SESSION['passenger'] ?? null;
+	$passengerId = is_array($passenger)
+		? filter_var($passenger['passenger_id'] ?? null, FILTER_VALIDATE_INT)
+		: false;
+	if ($passengerId === false || $passengerId < 1) {
+		sendJsonResponse(401, ['success' => false, 'error' => 'Sign in to manage your bookings.']);
+	}
+	require_once __DIR__ . '/../config/database-oracle.php';
 
 	if ($method === 'GET') {
-		$sql = 'SELECT * FROM TICKET';
+		$sql = 'SELECT tk.ticket_id, tk.trip_id, tk.passenger_id, tk.seat_number, '
+			. 'TO_CHAR(tk.booking_date, \'YYYY-MM-DD"T"HH24:MI:SS\') AS booking_date, tk.fare, tk.status, '
+			. 'tr.route_id, tr.vehicle_id, '
+			. 'TO_CHAR(tr.departure_time, \'YYYY-MM-DD"T"HH24:MI:SS\') AS departure_time, '
+			. 'TO_CHAR(tr.arrival_time, \'YYYY-MM-DD"T"HH24:MI:SS\') AS arrival_time, '
+			. 'r.route_name, r.origin_city, r.destination_city, v.capacity '
+			. 'FROM TICKET tk JOIN TRIP tr ON tr.trip_id = tk.trip_id '
+			. 'JOIN ROUTE r ON r.route_id = tr.route_id JOIN VEHICLE v ON v.vehicle_id = tr.vehicle_id '
+			. 'WHERE tk.passenger_id = :passenger_id';
 		$id = $_GET['id'] ?? null;
 		if ($id !== null) {
 			$id = validateRecordId($id);
-			$sql .= ' WHERE ticket_id = :id';
+			$sql .= ' AND tk.ticket_id = :id';
 		}
+		$sql .= ' ORDER BY tk.booking_date DESC';
 		$statement = oci_parse($conn, $sql);
+		oci_bind_by_name($statement, ':passenger_id', $passengerId);
 		if ($id !== null) {
 			oci_bind_by_name($statement, ':id', $id);
 		}
@@ -47,17 +67,16 @@ try {
 	}
 
 	$payload = readJsonPayload();
-	$unknownFields = array_diff(array_keys($payload), ['passenger_id', 'trip_id', 'seat_number']);
+	$unknownFields = array_diff(array_keys($payload), ['trip_id', 'seat_number']);
 	if ($unknownFields !== []) {
 		sendJsonResponse(400, ['success' => false, 'error' => 'Unknown field: ' . reset($unknownFields)]);
 	}
-	foreach (['passenger_id', 'trip_id', 'seat_number'] as $field) {
+	foreach (['trip_id', 'seat_number'] as $field) {
 		if (!array_key_exists($field, $payload)) {
 			sendJsonResponse(400, ['success' => false, 'error' => "Missing required field: {$field}"]);
 		}
 	}
 
-	$passengerId = validateRecordId($payload['passenger_id']);
 	$tripId = validateRecordId($payload['trip_id']);
 	$seatNumber = validateRecordId($payload['seat_number']);
 	$statement = oci_parse($conn, 'BEGIN sp_add_booking(:passenger_id, :trip_id, :seat_number, :ticket_id); END;');
