@@ -268,6 +268,7 @@ function initEntityPage(entityName) {
 
 async function initDashboard() {
 	const feedback = document.querySelector('[data-admin-feedback]');
+	const bookingBody = document.querySelector('[data-dashboard-bookings]');
 	try {
 		const [vehicles, routes, trips, drivers] = await Promise.all([
 			apiRequest('vehicle-api.php'), apiRequest('route-api.php'), apiRequest('trip-api.php'), apiRequest('driver-api.php'),
@@ -276,24 +277,99 @@ async function initDashboard() {
 		document.querySelector('[data-admin-stat="routes"]').textContent = routes.filter((route) => route.is_active !== 'N').length;
 		document.querySelector('[data-admin-stat="trips"]').textContent = trips.filter((trip) => (parseDate(trip.departure_time)?.getTime() || 0) > Date.now() && ['SCHEDULED', 'BOARDING'].includes(String(trip.status).toUpperCase())).length;
 		document.querySelector('[data-admin-stat="drivers"]').textContent = drivers.length;
-		const routeNames = new Map(routes.map((route) => [String(route.route_id), `${route.origin_city} to ${route.destination_city}`]));
-		const tbody = document.querySelector('[data-dashboard-trips]');
-		const upcoming = trips.filter((trip) => (parseDate(trip.departure_time)?.getTime() || 0) > Date.now() && !['CANCELLED', 'COMPLETED'].includes(String(trip.status).toUpperCase())).sort((a, b) => (parseDate(a.departure_time)?.getTime() || 0) - (parseDate(b.departure_time)?.getTime() || 0)).slice(0, 8);
-		tbody.replaceChildren();
-		if (!upcoming.length) {
-			const row = document.createElement('tr'); addCell(row, 'No upcoming departures.', 'admin-empty').colSpan = 5; tbody.append(row); return;
-		}
-		upcoming.forEach((trip) => {
-			const row = document.createElement('tr');
-			addCell(row, `#${trip.trip_id}`); addCell(row, routeNames.get(String(trip.route_id)) || `Route ${trip.route_id}`);
-			addCell(row, formatDate(trip.departure_time)); addCell(row, formatMoney(trip.fare)); addCell(row, trip.status, 'status-cell'); tbody.append(row);
+		['vehicles', 'routes', 'trips', 'drivers'].forEach((key) => {
+			document.querySelector(`[data-admin-trend="${key}"]`).textContent = 'Live database total';
 		});
 	} catch (error) {
-		const row = document.createElement('tr');
-		addCell(row, 'Upcoming departures are unavailable.', 'admin-empty').colSpan = 5;
-		document.querySelector('[data-dashboard-trips]').replaceChildren(row);
 		setNotice(feedback, error.message);
 	}
+
+	if (bookingBody) {
+		const endpoint = bookingBody.dataset.bookingsEndpoint;
+		try {
+			const response = await fetch(endpoint, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+			const result = await response.json();
+			if (!response.ok || !result.success || !Array.isArray(result.data)) throw new Error(result.error || 'Admin bookings feed is unavailable.');
+			bookingBody.replaceChildren();
+			if (result.data.length === 0) {
+				const row = document.createElement('tr');
+				addCell(row, 'No recent bookings.', 'admin-empty').colSpan = 7;
+				bookingBody.append(row);
+			} else {
+				result.data.slice(0, 10).forEach((booking) => {
+					const row = document.createElement('tr');
+					addCell(row, `#${booking.ticket_id}`);
+					addCell(row, booking.passenger_name);
+					addCell(row, `${booking.origin_city} to ${booking.destination_city}`);
+					addCell(row, formatDate(booking.booking_date, { dateStyle: 'medium' }));
+					addCell(row, formatMoney(booking.fare));
+					addCell(row, booking.status, 'status-cell');
+					const actions = document.createElement('td');
+					actions.className = 'admin-row-actions';
+					[['view', 'View'], ['edit', 'Edit'], ['delete', 'Delete']].forEach(([action, label]) => {
+						const button = document.createElement('button');
+						button.type = 'button';
+						button.className = `admin-row-action${action === 'delete' ? ' is-danger' : ''}`;
+						button.dataset.bookingAction = action;
+						button.dataset.ticketId = booking.ticket_id;
+						button.textContent = label;
+						actions.append(button);
+					});
+					row.append(actions);
+					bookingBody.append(row);
+				});
+			}
+			bookingBody.addEventListener('click', async (event) => {
+				const button = event.target.closest('[data-booking-action]');
+				if (!button) return;
+				const booking = result.data.find((item) => String(item.ticket_id) === button.dataset.ticketId);
+				if (!booking) return;
+				if (button.dataset.bookingAction === 'view') {
+					const details = document.querySelector('[data-dialog-details]');
+					details.replaceChildren();
+					[['Passenger', booking.passenger_name], ['Route', `${booking.origin_city} to ${booking.destination_city}`], ['Booking date', formatDate(booking.booking_date)], ['Fare', formatMoney(booking.fare)], ['Status', booking.status], ['Ticket', `#${booking.ticket_id}`]].forEach(([label, value]) => {
+						const term = document.createElement('dt'); term.textContent = label;
+						const description = document.createElement('dd'); description.textContent = value ?? '—';
+						details.append(term, description);
+					});
+					document.querySelector('[data-booking-dialog]').showModal();
+					return;
+				}
+				if (button.dataset.bookingAction === 'edit') {
+					setNotice(feedback, 'Booking edits need an admin booking endpoint to be enabled.');
+					return;
+				}
+				if (!window.confirm(`Delete ticket #${booking.ticket_id}? This action requires a configured admin endpoint.`)) return;
+				try {
+					const deleteResponse = await fetch(`${endpoint}?id=${encodeURIComponent(booking.ticket_id)}`, { method: 'DELETE', credentials: 'same-origin', headers: { Accept: 'application/json' } });
+					const deleteResult = await deleteResponse.json();
+					if (!deleteResponse.ok || !deleteResult.success) throw new Error(deleteResult.error || 'Delete service is unavailable.');
+					setNotice(feedback, 'Booking deleted.', false);
+					initDashboard();
+				} catch (error) {
+					setNotice(feedback, error.message);
+				}
+			});
+		} catch (error) {
+			const row = document.createElement('tr');
+			addCell(row, 'Admin bookings API is not configured; the passenger booking API is not used here.', 'admin-empty').colSpan = 7;
+			bookingBody.replaceChildren(row);
+		}
+	}
+}
+
+function initAdminSidebarToggle() {
+	const button = document.querySelector('[data-sidebar-toggle]');
+	const shell = document.querySelector('.admin-shell');
+	if (!button || !shell) return;
+	button.addEventListener('click', () => {
+		const isExpanded = button.getAttribute('aria-expanded') === 'true';
+		button.setAttribute('aria-expanded', String(!isExpanded));
+		button.setAttribute('aria-label', isExpanded ? 'Expand sidebar' : 'Collapse sidebar');
+		shell.classList.toggle('is-sidebar-collapsed', isExpanded);
+	});
+	const closeButton = document.querySelector('[data-dialog-close]');
+	closeButton?.addEventListener('click', () => document.querySelector('[data-booking-dialog]').close());
 }
 
 async function initReports() {
@@ -423,6 +499,7 @@ async function initFeedback() {
 }
 
 const page = document.body.dataset.adminPage;
+initAdminSidebarToggle();
 if (['vehicles', 'routes', 'trips'].includes(page)) initEntityPage(page);
 if (page === 'dashboard') initDashboard();
 if (page === 'reports') {

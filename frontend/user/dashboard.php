@@ -7,11 +7,11 @@ $activePage = 'dashboard';
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<meta name="theme-color" content="#182722">
+	<meta name="theme-color" content="#1A365D">
 	<title>Passenger dashboard | SmartMove</title>
 	<link rel="preconnect" href="https://fonts.googleapis.com">
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-	<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0,0&display=swap" rel="stylesheet">
 	<link rel="stylesheet" href="../assets/css/user-panel.css">
 	<script src="../assets/js/user-panel.js" defer></script>
 </head>
@@ -20,8 +20,8 @@ $activePage = 'dashboard';
 		<?php require __DIR__ . '/../includes/user-sidebar.php'; ?>
 		<main class="panel-main">
 			<header class="panel-topbar">
-				<div><p class="panel-eyebrow">PASSENGER / OVERVIEW</p><h1>Good day, <?= htmlspecialchars(explode(' ', $passenger['full_name'])[0], ENT_QUOTES, 'UTF-8') ?>.</h1></div>
-				<a class="panel-button panel-button-coral" href="search-trip.php">Plan a journey <span aria-hidden="true">↗</span></a>
+				<div class="panel-heading-group"><button class="panel-icon-button sidebar-toggle" type="button" data-sidebar-toggle aria-label="Collapse sidebar" aria-controls="passenger-sidebar" aria-expanded="true"><span class="material-symbols-rounded" aria-hidden="true">left_panel_close</span></button><div><p class="panel-eyebrow">PASSENGER / OVERVIEW</p><h1>Good day, <?= htmlspecialchars(explode(' ', $passenger['full_name'])[0], ENT_QUOTES, 'UTF-8') ?>.</h1></div></div>
+				<div class="panel-topbar-actions"><button class="panel-icon-button notification-button" type="button" aria-label="Notifications"><span class="material-symbols-rounded" aria-hidden="true">notifications</span><i aria-hidden="true"></i></button><a class="panel-profile-chip" href="my-bookings.php"><span class="profile-avatar profile-avatar-small"><?= htmlspecialchars(strtoupper(substr($passenger['full_name'], 0, 1)), ENT_QUOTES, 'UTF-8') ?></span><span><?= htmlspecialchars(explode(' ', $passenger['full_name'])[0], ENT_QUOTES, 'UTF-8') ?></span></a><a class="panel-button panel-button-coral" href="search-trip.php">Plan a journey <span aria-hidden="true">↗</span></a></div>
 			</header>
 			<div class="panel-content" data-dashboard-content>
 				<section class="welcome-strip">

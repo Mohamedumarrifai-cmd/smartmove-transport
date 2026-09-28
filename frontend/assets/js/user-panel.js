@@ -369,6 +369,8 @@ async function initBooking() {
 		const seatInput = document.querySelector('#seat-number');
 		seatInput.max = String(vehicle.capacity);
 		document.querySelector('[data-seat-hint]').textContent = `Choose a seat from 1 to ${vehicle.capacity}. Availability is confirmed when you book.`;
+		document.querySelector('[data-review-fare]').textContent = formatFare(trip.fare);
+		document.querySelector('[data-review-departure]').textContent = `${formatDate(trip.departure_time, { weekday: 'short', month: 'short', day: 'numeric' })} · ${formatTime(trip.departure_time)}`;
 		layout.hidden = false;
 		empty.hidden = true;
 		setMessage(feedback, '');
@@ -377,13 +379,37 @@ async function initBooking() {
 		if (empty) empty.hidden = false;
 	}
 
+	const bookingSteps = [...form.querySelectorAll('[data-booking-step]')];
+	const progressSteps = [...document.querySelectorAll('[data-booking-progress]')];
+	const showBookingStep = (stepNumber) => {
+		bookingSteps.forEach((step) => {
+			const isCurrent = Number(step.dataset.bookingStep) === stepNumber;
+			step.hidden = !isCurrent;
+			step.classList.toggle('is-active', isCurrent);
+		});
+		progressSteps.forEach((step) => {
+			const isCurrent = Number(step.dataset.bookingProgress) === stepNumber;
+			step.classList.toggle('is-current', isCurrent);
+			step.classList.toggle('is-complete', Number(step.dataset.bookingProgress) < stepNumber);
+			if (isCurrent) step.setAttribute('aria-current', 'step');
+			else step.removeAttribute('aria-current');
+		});
+	};
+	form.querySelector('[data-booking-next]').addEventListener('click', () => {
+		const seatInput = form.elements.seat_number;
+		if (!seatInput.reportValidity()) return;
+		document.querySelector('[data-review-seat]').textContent = `Seat ${seatInput.value}`;
+		showBookingStep(2);
+	});
+	form.querySelector('[data-booking-back]').addEventListener('click', () => showBookingStep(1));
+
 	form.addEventListener('submit', async (event) => {
 		event.preventDefault();
 		if (!form.reportValidity()) return;
-		const button = form.querySelector('button[type="submit"]');
-		const originalText = button.firstChild.textContent;
+		const button = form.querySelector('[data-booking-confirm]');
+		const originalText = button.textContent;
 		button.disabled = true;
-		button.firstChild.textContent = 'Reserving… ';
+		button.textContent = 'Reserving…';
 		try {
 			const data = await requestJson('booking-api.php', {
 				method: 'POST',
@@ -394,10 +420,24 @@ async function initBooking() {
 		} catch (error) {
 			setMessage(feedback, error.message);
 			button.disabled = false;
-			button.firstChild.textContent = originalText;
+			button.textContent = originalText;
 		}
 	});
 }
+
+function initSidebarToggle() {
+	const button = document.querySelector('[data-sidebar-toggle]');
+	const shell = document.querySelector('.panel-shell');
+	if (!button || !shell) return;
+	button.addEventListener('click', () => {
+		const isExpanded = button.getAttribute('aria-expanded') === 'true';
+		button.setAttribute('aria-expanded', String(!isExpanded));
+		button.setAttribute('aria-label', isExpanded ? 'Expand sidebar' : 'Collapse sidebar');
+		shell.classList.toggle('is-sidebar-collapsed', isExpanded);
+	});
+}
+
+initSidebarToggle();
 
 switch (document.body.dataset.page) {
 	case 'dashboard':

@@ -1,14 +1,14 @@
 :root {
-	--panel-ink: #182722;
-	--panel-soft: #3b4b43;
-	--panel-paper: #f2f4ee;
-	--panel-white: #fffefa;
-	--panel-muted: #7c887f;
-	--panel-line: #dce2d9;
-	--panel-coral: #ef7659;
-	--panel-lime: #d6ed83;
-	--panel-display: 'Space Grotesk', 'Trebuchet MS', sans-serif;
-	--panel-body: 'DM Sans', 'Trebuchet MS', sans-serif;
+	--panel-ink: #1A365D;
+	--panel-soft: #2D3748;
+	--panel-paper: #F7FAFC;
+	--panel-white: #ffffff;
+	--panel-muted: #687588;
+	--panel-line: #e1e7ee;
+	--panel-coral: #ED8936;
+	--panel-lime: #fce4cd;
+	--panel-display: 'Inter', 'Segoe UI', sans-serif;
+	--panel-body: 'Inter', 'Segoe UI', sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -19,7 +19,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 [hidden] { display: none !important; }
 
 .panel-shell { display: flex; min-height: 100svh; }
-.app-sidebar { position: sticky; top: 0; display: flex; flex: 0 0 246px; flex-direction: column; width: 246px; height: 100svh; padding: 28px 19px 21px; color: #f5f7f0; background: var(--panel-ink); }
+.app-sidebar { position: sticky; top: 0; display: flex; flex: 0 0 246px; flex-direction: column; width: 246px; height: 100svh; padding: 28px 19px 21px; color: #f5f7f0; background: var(--panel-ink); transition: flex-basis 180ms ease, width 180ms ease, padding 180ms ease; }
 .panel-brand { display: inline-flex; align-items: center; gap: 10px; margin: 0 0 39px 4px; font-family: var(--panel-display); font-size: 20px; font-weight: 700; }
 .brand-mark { display: inline-flex; align-items: flex-end; gap: 2px; width: 24px; height: 22px; padding: 3px; border-radius: 4px; background: var(--panel-coral); transform: skew(-12deg); }
 .brand-mark i { display: block; width: 4px; border-radius: 2px 2px 1px 1px; background: var(--panel-white); }
@@ -105,6 +105,58 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .note-pin { flex: 0 0 7px; width: 7px; height: 7px; margin-top: 3px; border-radius: 50%; background: var(--panel-lime); box-shadow: 0 0 0 4px rgba(120,153,69,.13); }
 .panel-feedback { min-height: 0; margin: 12px 0; color: #b24c36; font-size: 11px; }
 .panel-feedback:empty { display: none; }
+
+.panel-heading-group, .panel-topbar-actions { display: flex; align-items: center; gap: 14px; }
+.panel-heading-group { min-width: 0; }
+.panel-topbar-actions { justify-content: flex-end; }
+.panel-icon-button { position: relative; display: grid; width: 39px; height: 39px; flex: 0 0 39px; place-items: center; border: 1px solid var(--panel-line); border-radius: 9px; color: var(--panel-ink); background: rgba(255,255,255,.72); cursor: pointer; transition: color 150ms ease, background 150ms ease, border-color 150ms ease; }
+.panel-icon-button:hover { border-color: #bdcbd9; background: #fff; }
+.panel-icon-button .material-symbols-rounded { font-size: 20px; }
+.notification-button i { position: absolute; top: 8px; right: 8px; width: 7px; height: 7px; border: 1px solid white; border-radius: 50%; background: var(--panel-coral); }
+.panel-profile-chip { display: flex; align-items: center; gap: 8px; color: var(--panel-soft); font-size: 10px; font-weight: 700; }
+.profile-avatar-small { flex-basis: 30px; width: 30px; height: 30px; color: white; background: var(--panel-ink); font-size: 11px; }
+.sidebar-toggle { background: transparent; }
+.panel-shell.is-sidebar-collapsed .app-sidebar { flex-basis: 82px; width: 82px; padding-inline: 11px; }
+.panel-shell.is-sidebar-collapsed .panel-brand { justify-content: center; margin-inline: 0; }
+.panel-shell.is-sidebar-collapsed .sidebar-brand-label, .panel-shell.is-sidebar-collapsed .sidebar-profile > span:last-child, .panel-shell.is-sidebar-collapsed .sidebar-label, .panel-shell.is-sidebar-collapsed .nav-label, .panel-shell.is-sidebar-collapsed .sidebar-bottom > a, .panel-shell.is-sidebar-collapsed .sidebar-status { display: none; }
+.panel-shell.is-sidebar-collapsed .sidebar-profile { justify-content: center; padding-inline: 0; }
+.panel-shell.is-sidebar-collapsed .panel-nav a { justify-content: center; padding-inline: 0; }
+.panel-shell.is-sidebar-collapsed .sidebar-bottom { justify-items: center; padding-inline: 0; }
+.panel-shell.is-sidebar-collapsed .sidebar-bottom::after { color: var(--panel-lime); font-size: 10px; content: 'ONLINE'; }
+
+.welcome-strip, .booking-trip-summary { background: var(--panel-ink); }
+.welcome-strip::after { border-color: rgba(237,137,54,.28); box-shadow: 0 0 0 33px rgba(237,137,54,.07), 0 0 0 66px rgba(237,137,54,.04); }
+.metric-grid, .booking-layout, .booking-empty, .trip-filter, .report-card { border-radius: 12px; box-shadow: 0 10px 32px rgba(26,54,93,.07); }
+.metric-item { background: rgba(255,255,255,.74); }
+.metric-item strong, .section-heading h2, .next-trip-card h3, .quick-link strong, .booking-form-section h2 { color: var(--panel-ink); }
+.booking-layout { overflow: hidden; }
+.booking-form-section { min-width: 0; }
+.booking-progress { display: grid; grid-template-columns: auto minmax(20px, 1fr) auto; align-items: center; gap: 12px; margin-bottom: 28px; }
+.booking-progress > i { height: 1px; background: var(--panel-line); }
+.booking-progress-step { display: inline-flex; align-items: center; gap: 8px; color: #8693a1; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.booking-progress-step b { display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid var(--panel-line); border-radius: 50%; color: #8190a0; background: #fff; font-size: 10px; }
+.booking-progress-step.is-current { color: var(--panel-ink); }
+.booking-progress-step.is-current b, .booking-progress-step.is-complete b { border-color: var(--panel-ink); color: #fff; background: var(--panel-ink); }
+.booking-progress-step.is-complete b { border-color: var(--panel-coral); background: var(--panel-coral); }
+.booking-step-panel { animation: booking-step-enter 220ms ease both; }
+.booking-step-panel[hidden] { display: none; }
+.booking-step-panel h2 { margin: 0; font-size: 22px; }
+.floating-field { position: relative; display: flex; min-height: 58px; align-items: center; margin-top: 19px; padding: 8px 12px; border: 1px solid #dbe3eb; border-radius: 9px; color: var(--panel-muted); background: #fff; transition: border-color 160ms ease, box-shadow 160ms ease; }
+.floating-field:focus-within { border-color: var(--panel-ink); box-shadow: 0 0 0 3px rgba(26,54,93,.1); }
+.floating-field > span:first-child { position: absolute; top: 5px; left: 13px; color: #8b97a4; font-size: 8px; font-weight: 700; pointer-events: none; }
+.floating-field input { width: 100%; height: 30px; margin-top: 13px; padding: 0 50px 0 0; border: 0; outline: 0; color: var(--panel-ink); background: transparent; font-size: 15px; font-weight: 600; }
+.floating-field input:focus-visible { outline: 0; }
+.floating-suffix { position: absolute; right: 13px; color: #9aa5b1; font-size: 8px; font-weight: 800; letter-spacing: .7px; }
+.booking-step-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.booking-step-actions .panel-button { min-height: 43px; border-radius: 8px; }
+.panel-button-quiet { border: 1px solid var(--panel-line); color: var(--panel-ink); background: white; }
+.booking-review-list { display: grid; gap: 0; margin-top: 20px; border: 1px solid var(--panel-line); border-radius: 10px; background: white; }
+.booking-review-list > div { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 12px 14px; }
+.booking-review-list > div + div { border-top: 1px solid var(--panel-line); }
+.booking-review-list span { color: #8491a0; font-size: 8px; font-weight: 800; letter-spacing: .5px; }
+.booking-review-list strong { color: var(--panel-ink); font-size: 10px; text-align: right; }
+.booking-confirm-note { margin-bottom: 0; }
+@keyframes booking-step-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 .search-intro { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
 .search-intro p { margin: 0; color: #69766d; font-family: var(--panel-display); font-size: 18px; font-weight: 500; }
@@ -210,6 +262,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 720px) {
 	.panel-shell { display: block; }
 	.app-sidebar { position: relative; top: auto; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; width: 100%; height: auto; padding: 13px 18px 0; }
+	.panel-shell.is-sidebar-collapsed .app-sidebar { display: grid; grid-template-columns: auto; }
+	.panel-shell.is-sidebar-collapsed .sidebar-profile, .panel-shell.is-sidebar-collapsed .panel-nav { display: none; }
+	.panel-shell.is-sidebar-collapsed .panel-brand { justify-content: flex-start; }
+	.panel-shell.is-sidebar-collapsed .sidebar-brand-label { display: inline; }
 	.panel-brand { margin: 0 0 10px; font-size: 17px; }
 	.sidebar-profile { justify-self: end; gap: 7px; padding: 0 0 10px; border: 0; }
 	.profile-avatar { flex-basis: 29px; width: 29px; height: 29px; font-size: 11px; }
@@ -219,6 +275,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 	.panel-nav a { flex: 0 0 auto; min-height: 36px; gap: 7px; padding: 0 10px; font-size: 9px; white-space: nowrap; }
 	.nav-index { font-size: 8px; }
 	.panel-topbar { min-height: 92px; padding: 17px 21px; }
+	.panel-heading-group { gap: 8px; }
+	.panel-heading-group .panel-icon-button { width: 34px; height: 34px; flex-basis: 34px; }
+	.panel-topbar-actions { gap: 7px; }
+	.panel-profile-chip > span:last-child { display: none; }
+	.booking-back-link { display: none; }
 	.panel-topbar h1 { font-size: 20px; }
 	.panel-topbar .panel-button { min-height: 39px; gap: 8px; padding: 0 11px; font-size: 9px; }
 	.panel-content { padding: 23px 21px 43px; }
@@ -249,6 +310,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 	.booking-layout { grid-template-columns: 1fr; }
 	.booking-trip-summary { min-height: 340px; padding: 25px; }
 	.booking-form-section { padding: 27px 24px; }
+	.booking-progress { gap: 8px; }
+	.booking-progress-step { gap: 6px; font-size: 8px; }
+	.booking-step-actions { flex-direction: column-reverse; }
+	.booking-step-actions .panel-button { width: 100%; }
 	.booking-content { padding-top: 23px; }
 	.booking-row { grid-template-columns: 1fr auto; gap: 10px; padding: 16px 4px; }
 	.booking-route { grid-column: 1; grid-row: 1; }
