@@ -30,11 +30,37 @@ function addCell(row, value, className = '') {
 	return cell;
 }
 
+function parseDate(value) {
+	if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+	if (typeof value !== 'string') return null;
+	const direct = new Date(value);
+	if (!Number.isNaN(direct.getTime())) return direct;
+	const oracle = value.trim().match(/^(\d{1,2})-([A-Z]{3})-(\d{2}|\d{4})\s+(\d{1,2})[.:](\d{2})[.:](\d{2})(?:[.,]\d+)?\s*(AM|PM)?$/i);
+	if (!oracle) return null;
+	const month = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'].indexOf(oracle[2].toUpperCase());
+	if (month < 0) return null;
+	let year = Number(oracle[3]);
+	if (year < 100) year += year < 50 ? 2000 : 1900;
+	let hour = Number(oracle[4]);
+	if (oracle[7]?.toUpperCase() === 'PM' && hour < 12) hour += 12;
+	if (oracle[7]?.toUpperCase() === 'AM' && hour === 12) hour = 0;
+	const parsed = new Date(year, month, Number(oracle[1]), hour, Number(oracle[5]), Number(oracle[6]));
+	return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function formatDate(value, options = { dateStyle: 'medium', timeStyle: 'short' }) {
-	if (!value) return '—';
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return String(value);
+	const date = parseDate(value);
+	if (!date) return value ? String(value) : '—';
 	return new Intl.DateTimeFormat('en', options).format(date);
+}
+
+function toOracleTimestamp(value) {
+	const date = parseDate(value);
+	if (!date) throw new Error('Enter a valid departure and arrival time.');
+	const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+	const hour = date.getHours() % 12 || 12;
+	const pad = (number) => String(number).padStart(2, '0');
+	return `${pad(date.getDate())}-${months[date.getMonth()]}-${date.getFullYear()} ${pad(hour)}.${pad(date.getMinutes())}.${pad(date.getSeconds())}.000000 ${date.getHours() >= 12 ? 'PM' : 'AM'}`;
 }
 
 function formatMoney(value) {
@@ -136,7 +162,12 @@ function initEntityPage(entityName) {
 	const table = document.querySelector('[data-entity-table]');
 	const message = document.querySelector('[data-form-message]');
 	const state = { records: [], lookups: { routes: new Map(), vehicles: new Map(), drivers: new Map() } };
-	const refresh = () => loadEntity(entityName, state, state.lookups).catch((error) => setNotice(message, error.message));
+	const refresh = () => loadEntity(entityName, state, state.lookups).catch((error) => {
+		const row = document.createElement('tr');
+		addCell(row, 'Could not load records.', 'admin-empty').colSpan = entityName === 'vehicles' ? 6 : 7;
+		table.replaceChildren(row);
+		setNotice(message, error.message);
+	});
 
 	if (entityName === 'trips') {
 		Promise.all([
@@ -155,7 +186,16 @@ function initEntityPage(entityName) {
 			state.lookups.vehicles = new Map(vehicles.map((item) => [String(item.vehicle_id), item.registration_number]));
 			state.lookups.drivers = new Map(drivers.map((item) => [String(item.driver_id), item.full_name]));
 			return refresh();
-		}).catch((error) => setNotice(message, error.message));
+		}).catch((error) => {
+			[form.elements.route_id, form.elements.vehicle_id, form.elements.driver_id].forEach((select) => {
+				select.replaceChildren(new Option('Unavailable', ''));
+				select.disabled = true;
+			});
+			const row = document.createElement('tr');
+			addCell(row, 'Trip data is unavailable.', 'admin-empty').colSpan = 7;
+			table.replaceChildren(row);
+			setNotice(message, error.message);
+		});
 	} else {
 		refresh();
 	}
@@ -172,7 +212,10 @@ function initEntityPage(entityName) {
 				const input = form.elements[field];
 				if (!input) return;
 				let value = record[field] ?? '';
-				if (input.type === 'datetime-local' && value) value = String(value).replace(' ', 'T').slice(0, 16);
+				if (input.type === 'datetime-local' && value) {
+					const date = parseDate(String(value));
+					value = date ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}` : '';
+				}
 				input.value = value;
 			});
 			form.elements[entity.id].value = record[entity.id];
@@ -203,7 +246,7 @@ function initEntityPage(entityName) {
 			if (value === null || value === '') return;
 			if (['route_id', 'vehicle_id', 'driver_id', 'capacity', 'manufacture_year', 'estimated_duration_minutes'].includes(field)) value = Number(value);
 			if (field === 'distance_km' || field === 'fare') value = Number(value);
-			if (field === 'departure_time' || field === 'arrival_time') value = `${value.replace('T', ' ')}:00`;
+			if (field === 'departure_time' || field === 'arrival_time') value = toOracleTimestamp(value);
 			payload[field] = value;
 		});
 		const recordId = form.elements[entity.id].value;
@@ -231,11 +274,11 @@ async function initDashboard() {
 		]);
 		document.querySelector('[data-admin-stat="vehicles"]').textContent = vehicles.length;
 		document.querySelector('[data-admin-stat="routes"]').textContent = routes.filter((route) => route.is_active !== 'N').length;
-		document.querySelector('[data-admin-stat="trips"]').textContent = trips.filter((trip) => new Date(trip.departure_time).getTime() > Date.now() && ['SCHEDULED', 'BOARDING'].includes(String(trip.status).toUpperCase())).length;
+		document.querySelector('[data-admin-stat="trips"]').textContent = trips.filter((trip) => (parseDate(trip.departure_time)?.getTime() || 0) > Date.now() && ['SCHEDULED', 'BOARDING'].includes(String(trip.status).toUpperCase())).length;
 		document.querySelector('[data-admin-stat="drivers"]').textContent = drivers.length;
 		const routeNames = new Map(routes.map((route) => [String(route.route_id), `${route.origin_city} to ${route.destination_city}`]));
 		const tbody = document.querySelector('[data-dashboard-trips]');
-		const upcoming = trips.filter((trip) => new Date(trip.departure_time).getTime() > Date.now()).sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time)).slice(0, 8);
+		const upcoming = trips.filter((trip) => (parseDate(trip.departure_time)?.getTime() || 0) > Date.now() && !['CANCELLED', 'COMPLETED'].includes(String(trip.status).toUpperCase())).sort((a, b) => (parseDate(a.departure_time)?.getTime() || 0) - (parseDate(b.departure_time)?.getTime() || 0)).slice(0, 8);
 		tbody.replaceChildren();
 		if (!upcoming.length) {
 			const row = document.createElement('tr'); addCell(row, 'No upcoming departures.', 'admin-empty').colSpan = 5; tbody.append(row); return;
@@ -246,6 +289,9 @@ async function initDashboard() {
 			addCell(row, formatDate(trip.departure_time)); addCell(row, formatMoney(trip.fare)); addCell(row, trip.status, 'status-cell'); tbody.append(row);
 		});
 	} catch (error) {
+		const row = document.createElement('tr');
+		addCell(row, 'Upcoming departures are unavailable.', 'admin-empty').colSpan = 5;
+		document.querySelector('[data-dashboard-trips]').replaceChildren(row);
 		setNotice(feedback, error.message);
 	}
 }
@@ -271,6 +317,9 @@ async function initReports() {
 		});
 		document.querySelector('[data-report-updated]').textContent = `UPDATED ${new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date())}`;
 	} catch (error) {
+		const row = document.createElement('tr');
+		addCell(row, 'Report data is unavailable.', 'admin-empty').colSpan = 3;
+		document.querySelector('[data-report-status]').replaceChildren(row);
 		setNotice(feedback, error.message);
 	}
 }
@@ -295,6 +344,9 @@ async function initFeedback() {
 			tbody.append(row);
 		});
 	} catch (error) {
+		const row = document.createElement('tr');
+		addCell(row, 'Feedback is unavailable.', 'admin-empty').colSpan = 5;
+		tbody.replaceChildren(row);
 		setNotice(feedback, error.message);
 	}
 }
