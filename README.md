@@ -50,15 +50,20 @@ On Windows, download OCI8 and MongoDB PHP extension builds that match your PHP v
 5. Set database connection values in the Apache environment. For a local XAMPP install, add values to Apache's `httpd.conf` (or an included local-only configuration) and restart Apache:
 
    ```apache
+   SetEnv SITE_NAME SmartMove
+   SetEnv SITE_URL http://localhost/SmartMove/smartmove-transport/frontend
+   SetEnv SESSION_NAME SMARTMOVESESSID
+   SetEnv DB_ORACLE_HOST localhost
+   SetEnv DB_ORACLE_PORT 1521
+   SetEnv DB_ORACLE_SERVICE_NAME XEPDB1
    SetEnv DB_ORACLE_USERNAME smartmove
    SetEnv DB_ORACLE_PASSWORD choose-a-local-password
-   SetEnv DB_ORACLE_CONNECTION_STRING localhost/XEPDB1
    SetEnv DB_ORACLE_CHARSET AL32UTF8
    SetEnv DB_MONGODB_URI mongodb://127.0.0.1:27017
    SetEnv DB_MONGODB_DATABASE smartmove
    ```
 
-   The application reads these values in `backend/config/constants.php`. The defaults target a local Oracle XE service named `XEPDB1` and a MongoDB database named `smartmove`. Do not commit real credentials.
+   The application reads these values in `backend/config/constants.php`. Oracle connects with an Easy Connect string built from host, port, and service name. Set `DB_ORACLE_CONNECTION_STRING` only when you need to override that default. The defaults target a local Oracle XE service named `XEPDB1` and a MongoDB database named `smartmove`. Do not commit real credentials.
 
 6. From the project root, install the MongoDB PHP library:
 
