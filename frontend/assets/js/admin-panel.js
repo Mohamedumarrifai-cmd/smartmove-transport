@@ -298,30 +298,101 @@ async function initDashboard() {
 
 async function initReports() {
 	const feedback = document.querySelector('[data-admin-feedback]');
-	try {
-		const [vehicles, routes, trips, drivers, payments] = await Promise.all([
-			apiRequest('vehicle-api.php'), apiRequest('route-api.php'), apiRequest('trip-api.php'), apiRequest('driver-api.php'), apiRequest('payment-api.php'),
-		]);
-		const totalPaid = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-		document.querySelector('[data-report-stat="trips"]').textContent = trips.length;
-		document.querySelector('[data-report-stat="bookings"]').textContent = payments.length;
-		document.querySelector('[data-report-stat="value"]').textContent = formatMoney(totalPaid);
-		const assignedVehicles = new Set(trips.map((trip) => String(trip.vehicle_id))).size;
-		document.querySelector('[data-report-stat="fleet"]').textContent = vehicles.length ? `${Math.round(assignedVehicles / vehicles.length * 100)}%` : '0%';
-		const statusBody = document.querySelector('[data-report-status]');
-		const statuses = ['SCHEDULED', 'BOARDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
-		statusBody.replaceChildren();
-		statuses.forEach((status) => {
-			const count = trips.filter((trip) => String(trip.status).toUpperCase() === status).length;
-			const row = document.createElement('tr'); addCell(row, status); addCell(row, count); addCell(row, trips.length ? `${Math.round(count / trips.length * 100)}%` : '0%'); statusBody.append(row);
+	const routeBody = document.querySelector('[data-report-routes]');
+	const revenueForm = document.querySelector('[data-revenue-form]');
+	const historyForm = document.querySelector('[data-history-form]');
+	const historyBody = document.querySelector('[data-report-history]');
+	const setEmptyRow = (tbody, message, columns) => {
+		const row = document.createElement('tr');
+		addCell(row, message, 'admin-empty').colSpan = columns;
+		tbody.replaceChildren(row);
+	};
+	const loadRoutes = async () => {
+		const routes = await apiRequest('report-api.php?report=route-popularity');
+		routeBody.replaceChildren();
+		if (!routes.length) return setEmptyRow(routeBody, 'No route bookings have been recorded.', 5);
+		routes.forEach((route, index) => {
+			const row = document.createElement('tr');
+			addCell(row, String(index + 1).padStart(2, '0'), 'report-rank');
+			addCell(row, route.route_name);
+			addCell(row, route.origin_city);
+			addCell(row, route.destination_city);
+			addCell(row, new Intl.NumberFormat('en').format(Number(route.booking_count) || 0));
+			routeBody.append(row);
 		});
+	};
+	const loadRevenue = async () => {
+		const startDate = revenueForm.elements.start_date.value;
+		const endDate = revenueForm.elements.end_date.value;
+		if (!startDate || !endDate) return;
+		if (startDate > endDate) throw new Error('The start date must be on or before the end date.');
+		const params = new URLSearchParams({ report: 'revenue', start_date: startDate, end_date: endDate });
+		const result = await apiRequest(`report-api.php?${params}`);
+		document.querySelector('[data-report-revenue-total]').textContent = formatMoney(result.total_revenue);
+		document.querySelector('[data-report-revenue-count]').textContent = `${new Intl.NumberFormat('en').format(Number(result.payment_count) || 0)} completed payments · ${startDate} through ${endDate}`;
+	};
+	const loadHistory = async (passengerId) => {
+		if (!passengerId) return;
+		const params = new URLSearchParams({ report: 'passenger-history', passenger_id: passengerId });
+		const history = await apiRequest(`report-api.php?${params}`);
+		historyBody.replaceChildren();
+		if (!history.length) return setEmptyRow(historyBody, `No travel history for passenger #${passengerId}.`, 7);
+		history.forEach((record) => {
+			const row = document.createElement('tr');
+			addCell(row, formatDate(record.departure_time));
+			addCell(row, record.passenger_name);
+			addCell(row, `${record.origin_city} to ${record.destination_city}`);
+			addCell(row, record.seat_number);
+			addCell(row, formatMoney(record.ticket_fare));
+			addCell(row, record.ticket_status, 'status-cell');
+			addCell(row, record.trip_status, 'status-cell');
+			historyBody.append(row);
+		});
+	};
+	const reportRunDate = new Date();
+	const priorMonth = new Date(reportRunDate);
+	priorMonth.setDate(priorMonth.getDate() - 30);
+	const isoDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+	if (!revenueForm.elements.start_date.value) revenueForm.elements.start_date.value = isoDate(priorMonth);
+	if (!revenueForm.elements.end_date.value) revenueForm.elements.end_date.value = isoDate(reportRunDate);
+
+	revenueForm.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		try {
+			await loadRevenue();
+			setNotice(feedback, 'Revenue report updated.', false);
+		} catch (error) {
+			setNotice(feedback, error.message);
+		}
+	});
+	historyForm.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		try {
+			await loadHistory(historyForm.elements.passenger_id.value);
+			setNotice(feedback, 'Travel history updated.', false);
+		} catch (error) {
+			setNotice(feedback, error.message);
+			setEmptyRow(historyBody, 'Travel history could not be loaded.', 7);
+		}
+	});
+
+	try {
+		await Promise.all([loadRoutes(), loadRevenue()]);
 		document.querySelector('[data-report-updated]').textContent = `UPDATED ${new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date())}`;
 	} catch (error) {
-		const row = document.createElement('tr');
-		addCell(row, 'Report data is unavailable.', 'admin-empty').colSpan = 3;
-		document.querySelector('[data-report-status]').replaceChildren(row);
 		setNotice(feedback, error.message);
+		if (routeBody.children.length === 1 && routeBody.textContent.includes('Loading')) setEmptyRow(routeBody, 'Route report is unavailable.', 5);
 	}
+	document.querySelector('[data-refresh]').addEventListener('click', async () => {
+		try {
+			await Promise.all([loadRoutes(), loadRevenue()]);
+			if (historyForm.elements.passenger_id.value) await loadHistory(historyForm.elements.passenger_id.value);
+			document.querySelector('[data-report-updated]').textContent = `UPDATED ${new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date())}`;
+			setNotice(feedback, 'Reports refreshed.', false);
+		} catch (error) {
+			setNotice(feedback, error.message);
+		}
+	});
 }
 
 async function initFeedback() {
@@ -356,7 +427,6 @@ if (['vehicles', 'routes', 'trips'].includes(page)) initEntityPage(page);
 if (page === 'dashboard') initDashboard();
 if (page === 'reports') {
 	initReports();
-	document.querySelector('[data-refresh]').addEventListener('click', initReports);
 }
 if (page === 'feedback') {
 	initFeedback();

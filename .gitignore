@@ -1,3 +1,4 @@
+/vendor/
 /backend/vendor/
 .env
 *.log

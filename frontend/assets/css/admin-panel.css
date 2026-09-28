@@ -99,6 +99,22 @@ td:first-child { color: var(--admin-ink); font-weight: 600; }
 .admin-report-metrics { margin-top: 0; }
 .feedback-rating { color: #b66a3a; font-size: 12px; letter-spacing: 1px; white-space: nowrap; }
 .feedback-comment { min-width: 220px; max-width: 410px; white-space: normal; }
+.reports-content { display: grid; gap: 30px; }
+.reports-content .admin-page-intro { margin-bottom: 0; }
+.report-section { min-width: 0; }
+.report-section .admin-section-heading { margin-bottom: 12px; }
+.report-note { color: var(--admin-muted); font-size: 9px; }
+.report-rank { color: #a5533f; font-family: var(--admin-display); font-size: 11px; }
+.report-filter { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin: 0 0 13px; padding: 14px; border: 1px solid var(--admin-line); background: var(--admin-white); }
+.report-filter label { display: grid; min-width: 155px; gap: 6px; color: #68756c; font-size: 9px; font-weight: 700; }
+.report-filter input { width: 100%; min-height: 38px; padding: 0 9px; border: 1px solid #dce2dc; border-radius: 3px; color: var(--admin-ink); background: #fbfcf9; font-size: 10px; }
+.report-filter .admin-button { min-height: 38px; }
+.report-filter-passenger label { min-width: min(260px, 100%); }
+.report-total { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 20px; padding: 17px 19px; border-left: 3px solid var(--admin-coral); background: var(--admin-green); color: #f5f8f1; }
+.report-total span { color: #c1d0c1; font-size: 8px; font-weight: 700; letter-spacing: .8px; }
+.report-total strong { grid-column: 1; font-family: var(--admin-display); font-size: 25px; font-weight: 600; }
+.report-total small { grid-column: 1; color: #c5d0c7; font-size: 9px; }
+.report-total strong { grid-row: 2; }
 
 @media (max-width: 1120px) {
 	.admin-sidebar { flex-basis: 200px; width: 200px; }
@@ -136,4 +152,9 @@ td:first-child { color: var(--admin-ink); font-weight: 600; }
 	.form-grid { gap: 8px; }
 	.admin-section-heading h2 { font-size: 17px; }
 	th, td { padding-right: 9px; padding-left: 9px; }
+	.reports-content { gap: 25px; }
+	.report-filter { align-items: stretch; }
+	.report-filter label { flex: 1 1 135px; }
+	.report-filter .admin-button { flex: 1 1 100%; }
+	.report-total { padding: 15px; }
 }
