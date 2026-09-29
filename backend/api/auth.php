@@ -1,17 +1,7 @@
 <?php
 
 header('Content-Type: application/json; charset=utf-8');
-
-if (session_status() !== PHP_SESSION_ACTIVE) {
-	session_set_cookie_params([
-		'lifetime' => 0,
-		'path' => '/',
-		'httponly' => true,
-		'samesite' => 'Lax',
-		'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
-	]);
-	session_start();
-}
+require_once __DIR__ . '/../config/constants.php';
 
 function sendAuthResponse(int $statusCode, array $payload): never
 {
@@ -29,98 +19,245 @@ function readAuthPayload(): array
 	return get_object_vars($payload);
 }
 
-try {
-	if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
-		header('Allow: POST');
-		sendAuthResponse(405, ['success' => false, 'error' => 'Method not allowed.']);
+function applyAuthCorsHeaders(): void
+{
+	$origin = $_SERVER['HTTP_ORIGIN'] ?? null;
+	if (!is_string($origin) || $origin === '') {
+		return;
 	}
 
+	$allowedOrigins = [];
+	$siteOrigin = parse_url(SITE_URL);
+	if (is_array($siteOrigin) && isset($siteOrigin['scheme'], $siteOrigin['host'])) {
+		$allowedOrigins[] = strtolower($siteOrigin['scheme'] . '://' . $siteOrigin['host'] . (isset($siteOrigin['port']) ? ':' . $siteOrigin['port'] : ''));
+	}
+	if (isset($_SERVER['HTTP_HOST'])) {
+		$requestScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+		$allowedOrigins[] = strtolower($requestScheme . '://' . $_SERVER['HTTP_HOST']);
+	}
+	$configuredOrigins = getenv('CORS_ALLOWED_ORIGINS');
+	if (is_string($configuredOrigins) && $configuredOrigins !== '') {
+		$allowedOrigins = array_merge($allowedOrigins, array_map('trim', explode(',', $configuredOrigins)));
+	}
+
+	if (!in_array(strtolower(rtrim($origin, '/')), array_map(static fn(string $value): string => strtolower(rtrim($value, '/')), $allowedOrigins), true)) {
+		sendAuthResponse(403, ['success' => false, 'error' => 'This origin is not allowed to access the authentication service.']);
+	}
+
+	header('Access-Control-Allow-Origin: ' . $origin);
+	header('Access-Control-Allow-Credentials: true');
+	header('Access-Control-Allow-Methods: POST, OPTIONS');
+	header('Access-Control-Allow-Headers: Content-Type, Accept');
+	header('Vary: Origin');
+}
+
+function startAuthSession(): void
+{
+	if (session_status() === PHP_SESSION_ACTIVE) {
+		return;
+	}
+
+	session_name(SESSION_NAME);
+	session_set_cookie_params(SESSION_COOKIE_PARAMS);
+	session_start();
+}
+
+function validateAuthEmail(mixed $value): string
+{
+	if (!is_string($value)) {
+		throw new InvalidArgumentException('Enter a valid email address.');
+	}
+	$email = strtolower(trim($value));
+	if (strlen($email) > 254 || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+		throw new InvalidArgumentException('Enter a valid email address.');
+	}
+	return $email;
+}
+
+function validateAuthPassword(mixed $value): string
+{
+	if (!is_string($value) || strlen($value) < 8 || strlen($value) > 72) {
+		throw new InvalidArgumentException('Password must be between 8 and 72 characters.');
+	}
+	return $value;
+}
+
+function validatePassengerPhone(mixed $value): string
+{
+	if (!is_string($value)) {
+		throw new InvalidArgumentException('Enter a valid phone number.');
+	}
+	$phone = trim($value);
+	$digits = preg_replace('/\D/', '', $phone);
+	if (strlen($phone) > 25 || strlen($digits) < 7 || strlen($digits) > 15 || !preg_match('/\A\+?[0-9][0-9\s().-]*\z/D', $phone)) {
+		throw new InvalidArgumentException('Enter a valid phone number.');
+	}
+	return $phone;
+}
+
+function createPassenger(array $payload, mixed $connection): array
+{
+	$fullName = $payload['full_name'] ?? null;
+	if (!is_string($fullName) || trim($fullName) === '' || strlen(trim($fullName)) > 120) {
+		throw new InvalidArgumentException('Name is required and must be at most 120 characters.');
+	}
+	$fullName = trim($fullName);
+	$phone = validatePassengerPhone($payload['phone'] ?? null);
+	$email = validateAuthEmail($payload['email'] ?? null);
+	$password = validateAuthPassword($payload['password'] ?? null);
+
+	$check = @oci_parse($connection, 'SELECT passenger_id FROM PASSENGER WHERE LOWER(email) = :email');
+	if ($check === false) {
+		throw new RuntimeException('Passenger email check could not be prepared.');
+	}
+	oci_bind_by_name($check, ':email', $email, 254);
+	if (!@oci_execute($check)) {
+		$error = oci_error($check);
+		oci_free_statement($check);
+		throw new RuntimeException($error['message'] ?? 'Passenger email check failed.');
+	}
+	$existingPassenger = oci_fetch_assoc($check);
+	oci_free_statement($check);
+	if ($existingPassenger !== false) {
+		throw new DomainException('An account with that email already exists.');
+	}
+
+	$passwordHash = password_hash($password, PASSWORD_BCRYPT);
+	if (!is_string($passwordHash)) {
+		throw new RuntimeException('Password could not be secured.');
+	}
+	$statement = @oci_parse(
+		$connection,
+		'INSERT INTO PASSENGER (full_name, email, phone, password_hash) '
+		. 'VALUES (:full_name, :email, :phone, :password_hash) RETURNING passenger_id INTO :passenger_id'
+	);
+	if ($statement === false) {
+		throw new RuntimeException('Passenger account insert could not be prepared.');
+	}
+
+	oci_bind_by_name($statement, ':full_name', $fullName, 120);
+	oci_bind_by_name($statement, ':email', $email, 254);
+	oci_bind_by_name($statement, ':phone', $phone, 25);
+	oci_bind_by_name($statement, ':password_hash', $passwordHash, 255);
+	$passengerId = null;
+	oci_bind_by_name($statement, ':passenger_id', $passengerId, 40);
+
+	if (!@oci_execute($statement, OCI_COMMIT_ON_SUCCESS)) {
+		$error = oci_error($statement);
+		oci_free_statement($statement);
+		if ((int) ($error['code'] ?? 0) === 1) {
+			throw new DomainException('An account with that email already exists.');
+		}
+		throw new RuntimeException($error['message'] ?? 'Passenger account insert failed.');
+	}
+	oci_free_statement($statement);
+
+	return [
+		'passenger_id' => (int) $passengerId,
+		'full_name' => $fullName,
+		'email' => $email,
+		'role' => 'passenger',
+	];
+}
+
+function authenticatePassenger(string $email, string $password, mixed $connection): array
+{
+	$statement = @oci_parse(
+		$connection,
+		'SELECT passenger_id, full_name, email, password_hash, status '
+		. 'FROM PASSENGER WHERE LOWER(email) = :email'
+	);
+	if ($statement === false) {
+		throw new RuntimeException('Passenger login query could not be prepared.');
+	}
+	oci_bind_by_name($statement, ':email', $email, 254);
+	if (!@oci_execute($statement)) {
+		$error = oci_error($statement);
+		oci_free_statement($statement);
+		throw new RuntimeException($error['message'] ?? 'Passenger login query failed.');
+	}
+	$passenger = oci_fetch_assoc($statement);
+	oci_free_statement($statement);
+
+	if ($passenger === false || !password_verify($password, $passenger['PASSWORD_HASH']) || $passenger['STATUS'] !== 'ACTIVE') {
+		throw new DomainException('Email or password is incorrect.');
+	}
+
+	return [
+		'passenger_id' => (int) $passenger['PASSENGER_ID'],
+		'full_name' => $passenger['FULL_NAME'],
+		'email' => $passenger['EMAIL'],
+		'role' => 'passenger',
+	];
+}
+
+applyAuthCorsHeaders();
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+if ($method === 'OPTIONS') {
+	http_response_code(204);
+	exit;
+}
+if ($method !== 'POST') {
+	header('Allow: POST, OPTIONS');
+	sendAuthResponse(405, ['success' => false, 'error' => 'Method not allowed.']);
+}
+
+try {
 	$payload = readAuthPayload();
 	$action = $payload['action'] ?? null;
-	if (!in_array($action, ['login', 'register'], true)) {
-		sendAuthResponse(400, ['success' => false, 'error' => 'Action must be login or register.']);
+	if (!is_string($action)) {
+		throw new InvalidArgumentException('Action must be login, register, or logout.');
 	}
 
-	$email = $payload['email'] ?? null;
-	$password = $payload['password'] ?? null;
-	if (!is_string($email) || !filter_var(trim($email), FILTER_VALIDATE_EMAIL) || strlen($email) > 254) {
-		sendAuthResponse(400, ['success' => false, 'error' => 'Enter a valid email address.']);
+	if ($action === 'logout') {
+		startAuthSession();
+		$_SESSION = [];
+		if (ini_get('session.use_cookies')) {
+			$params = session_get_cookie_params();
+			setcookie(session_name(), '', [
+				'expires' => time() - 42000,
+				'path' => $params['path'],
+				'domain' => $params['domain'],
+				'secure' => $params['secure'],
+				'httponly' => $params['httponly'],
+				'samesite' => $params['samesite'] ?? 'Lax',
+			]);
+		}
+		session_destroy();
+		sendAuthResponse(200, ['success' => true, 'message' => 'You have been signed out.']);
 	}
-	if (!is_string($password) || strlen($password) < 8 || strlen($password) > 72) {
-		sendAuthResponse(400, ['success' => false, 'error' => 'Password must be between 8 and 72 characters.']);
-	}
-	$email = strtolower(trim($email));
 
-	require_once __DIR__ . '/../config/database-oracle.php';
+	switch ($action) {
+		case 'register':
+			$email = validateAuthEmail($payload['email'] ?? null);
+			$password = validateAuthPassword($payload['password'] ?? null);
+			startAuthSession();
+			require __DIR__ . '/../config/database-oracle.php';
+			$user = createPassenger($payload, $conn);
+			break;
 
-	if ($action === 'register') {
-		$fullName = $payload['full_name'] ?? null;
-		$phone = $payload['phone'] ?? null;
-		if (!is_string($fullName) || trim($fullName) === '' || strlen(trim($fullName)) > 120) {
-			sendAuthResponse(400, ['success' => false, 'error' => 'Name is required and must be at most 120 characters.']);
-		}
-		if (!is_string($phone) || trim($phone) === '' || strlen(trim($phone)) > 25) {
-			sendAuthResponse(400, ['success' => false, 'error' => 'Phone number is required and must be at most 25 characters.']);
-		}
+		case 'login':
+			$email = validateAuthEmail($payload['email'] ?? null);
+			$password = validateAuthPassword($payload['password'] ?? null);
+			startAuthSession();
+			require __DIR__ . '/../config/database-oracle.php';
+			$user = authenticatePassenger($email, $password, $conn);
+			break;
 
-		$passwordHash = password_hash($password, PASSWORD_DEFAULT);
-		$statement = oci_parse(
-			$conn,
-			'INSERT INTO PASSENGER (full_name, email, phone, password_hash) '
-			. 'VALUES (:full_name, :email, :phone, :password_hash) RETURNING passenger_id INTO :passenger_id'
-		);
-		oci_bind_by_name($statement, ':full_name', $fullName, 120);
-		oci_bind_by_name($statement, ':email', $email, 254);
-		oci_bind_by_name($statement, ':phone', $phone, 25);
-		oci_bind_by_name($statement, ':password_hash', $passwordHash, 255);
-		$passengerId = null;
-		oci_bind_by_name($statement, ':passenger_id', $passengerId, 40);
-
-		if (!@oci_execute($statement, OCI_COMMIT_ON_SUCCESS)) {
-			$error = oci_error($statement);
-			oci_free_statement($statement);
-			if ((int) ($error['code'] ?? 0) === 1) {
-				sendAuthResponse(409, ['success' => false, 'error' => 'An account with that email already exists.']);
-			}
-			error_log('Registration API error: ' . ($error['message'] ?? 'Unknown Oracle error.'));
-			sendAuthResponse(500, ['success' => false, 'error' => 'Account could not be created.']);
-		}
-		oci_free_statement($statement);
-		$user = [
-			'passenger_id' => (int) $passengerId,
-			'full_name' => trim($fullName),
-			'email' => $email,
-		];
-	} else {
-		$statement = oci_parse(
-			$conn,
-			'SELECT passenger_id, full_name, email, password_hash, status '
-			. 'FROM PASSENGER WHERE LOWER(email) = :email'
-		);
-		oci_bind_by_name($statement, ':email', $email, 254);
-		if (!@oci_execute($statement)) {
-			$error = oci_error($statement);
-			oci_free_statement($statement);
-			throw new RuntimeException($error['message'] ?? 'Login query failed.');
-		}
-		$passenger = oci_fetch_assoc($statement);
-		oci_free_statement($statement);
-
-		if ($passenger === false || !password_verify($password, $passenger['PASSWORD_HASH']) || $passenger['STATUS'] !== 'ACTIVE') {
-			sendAuthResponse(401, ['success' => false, 'error' => 'Email or password is incorrect.']);
-		}
-		$user = [
-			'passenger_id' => (int) $passenger['PASSENGER_ID'],
-			'full_name' => $passenger['FULL_NAME'],
-			'email' => $passenger['EMAIL'],
-		];
+		default:
+			throw new InvalidArgumentException('Action must be login, register, or logout.');
 	}
 
 	session_regenerate_id(true);
 	$_SESSION['passenger'] = $user;
+	$_SESSION['passenger_id'] = $user['passenger_id'];
+	$_SESSION['role'] = $user['role'];
 	sendAuthResponse(200, ['success' => true, 'message' => 'Authentication successful.', 'user' => $user]);
 } catch (JsonException $exception) {
 	sendAuthResponse(400, ['success' => false, 'error' => 'Request body must contain valid JSON.']);
+} catch (DomainException $exception) {
+	$statusCode = $exception->getMessage() === 'An account with that email already exists.' ? 409 : 401;
+	sendAuthResponse($statusCode, ['success' => false, 'error' => $exception->getMessage()]);
 } catch (InvalidArgumentException $exception) {
 	sendAuthResponse(400, ['success' => false, 'error' => $exception->getMessage()]);
 } catch (Throwable $exception) {

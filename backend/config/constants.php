@@ -20,7 +20,7 @@ define('DB_ORACLE_CHARSET', getenv('DB_ORACLE_CHARSET') !== false ? getenv('DB_O
 define('DB_MONGODB_URI', getenv('DB_MONGODB_URI') !== false ? getenv('DB_MONGODB_URI') : 'mongodb://127.0.0.1:27017');
 define('DB_MONGODB_DATABASE', getenv('DB_MONGODB_DATABASE') !== false ? getenv('DB_MONGODB_DATABASE') : 'smartmove');
 
-define('SESSION_NAME', getenv('SESSION_NAME') !== false ? getenv('SESSION_NAME') : 'SMARTMOVESESSID');
+define('SESSION_NAME', getenv('SESSION_NAME') !== false ? getenv('SESSION_NAME') : 'PHPSESSID');
 define('SESSION_COOKIE_PARAMS', [
 	'lifetime' => 0,
 	'path' => '/',
