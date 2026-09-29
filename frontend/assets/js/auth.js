@@ -21,8 +21,13 @@ document.querySelectorAll('[data-auth-form]').forEach((form) => {
 				headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
 				body: JSON.stringify(formData),
 			});
-			const result = await response.json().catch(() => null);
-			if (!response.ok || result?.success !== true) {
+			let result;
+			if (!response.ok) {
+				const errorResult = await response.json().catch(() => null);
+				throw new Error(errorResult?.error || 'We could not complete authentication. Please try again.');
+			}
+			result = await response.json().catch(() => null);
+			if (result?.success !== true) {
 				throw new Error(result?.error || 'We could not complete authentication. Please try again.');
 			}
 
