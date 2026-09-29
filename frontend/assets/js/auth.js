@@ -11,6 +11,7 @@ document.querySelectorAll('[data-auth-form]').forEach((form) => {
 		message.textContent = '';
 		message.classList.remove('is-error', 'is-success');
 		button.disabled = true;
+		button.classList.add('is-loading');
 		buttonLabel.textContent = form.dataset.mode === 'register' ? 'Creating account…' : 'Signing in…';
 		form.setAttribute('aria-busy', 'true');
 
@@ -44,6 +45,7 @@ document.querySelectorAll('[data-auth-form]').forEach((form) => {
 				: error.message;
 			message.classList.add('is-error');
 			button.disabled = false;
+			button.classList.remove('is-loading');
 			buttonLabel.textContent = originalLabel;
 			form.removeAttribute('aria-busy');
 		}

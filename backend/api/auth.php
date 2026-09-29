@@ -12,11 +12,12 @@ function sendAuthResponse(int $statusCode, array $payload): never
 
 function readAuthPayload(): array
 {
-	$payload = json_decode(file_get_contents('php://input'), false, 512, JSON_THROW_ON_ERROR);
-	if (!$payload instanceof stdClass) {
+	$rawPayload = file_get_contents('php://input');
+	$payload = json_decode($rawPayload, true, 512, JSON_THROW_ON_ERROR);
+	if (!is_array($payload) || !str_starts_with(ltrim($rawPayload), '{')) {
 		throw new InvalidArgumentException('Request body must be a JSON object.');
 	}
-	return get_object_vars($payload);
+	return $payload;
 }
 
 function applyAuthCorsHeaders(): void
@@ -267,5 +268,18 @@ try {
 	sendAuthResponse(400, ['success' => false, 'error' => $exception->getMessage()]);
 } catch (Throwable $exception) {
 	error_log('Authentication API error: ' . $exception->getMessage());
-	sendAuthResponse(500, ['success' => false, 'error' => 'Authentication service is unavailable.']);
+	$errorMessage = 'Authentication service is unavailable.';
+	if (str_starts_with($exception->getMessage(), 'Oracle database connection failed.')) {
+		$errorMessage = 'Database connection failed. Enable OCI8 in XAMPP and verify the DB_ORACLE_* settings.';
+	}
+
+	if (filter_var(getenv('APP_DEBUG') ?: 'false', FILTER_VALIDATE_BOOLEAN)) {
+		$rootCause = $exception;
+		while ($rootCause->getPrevious() instanceof Throwable) {
+			$rootCause = $rootCause->getPrevious();
+		}
+		$errorMessage = $rootCause->getMessage();
+	}
+
+	sendAuthResponse(500, ['success' => false, 'error' => $errorMessage]);
 }
