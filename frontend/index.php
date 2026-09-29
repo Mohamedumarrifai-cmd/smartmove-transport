@@ -12,12 +12,12 @@ $firstName = is_array($passenger) && isset($passenger['full_name'])
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<meta name="theme-color" content="#1A365D">
 	<meta name="description" content="Book your next intercity journey with SmartMove. Find routes, reserve seats, and keep your travel plans in one place.">
-	<title>SmartMove | Your next stop starts here</title>
+	<title>SmartMove | Move smarter. Travel better.</title>
 	<link rel="preconnect" href="https://fonts.googleapis.com">
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-	<link rel="stylesheet" href="assets/css/style.css">
-	<script src="assets/js/main.js" defer></script>
+	<link rel="stylesheet" href="assets/css/reel-landing.css">
+	<script src="assets/js/reel-scroll.js" defer></script>
 </head>
 <body class="landing-page">
 	<header class="site-header" data-site-header>
