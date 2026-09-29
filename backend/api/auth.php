@@ -204,30 +204,29 @@ if ($method !== 'POST') {
 
 try {
 	$payload = readAuthPayload();
-	$action = $payload['action'] ?? null;
+	$action = $payload['action'] ?? $_POST['action'] ?? $_GET['action'] ?? null;
 	if (!is_string($action)) {
 		throw new InvalidArgumentException('Action must be login, register, or logout.');
 	}
 
-	if ($action === 'logout') {
-		startAuthSession();
-		$_SESSION = [];
-		if (ini_get('session.use_cookies')) {
-			$params = session_get_cookie_params();
-			setcookie(session_name(), '', [
-				'expires' => time() - 42000,
-				'path' => $params['path'],
-				'domain' => $params['domain'],
-				'secure' => $params['secure'],
-				'httponly' => $params['httponly'],
-				'samesite' => $params['samesite'] ?? 'Lax',
-			]);
-		}
-		session_destroy();
-		sendAuthResponse(200, ['success' => true, 'message' => 'You have been signed out.']);
-	}
-
 	switch ($action) {
+		case 'logout':
+			startAuthSession();
+			$_SESSION = [];
+			if (ini_get('session.use_cookies')) {
+				$params = session_get_cookie_params();
+				setcookie(session_name(), '', [
+					'expires' => time() - 42000,
+					'path' => $params['path'],
+					'domain' => $params['domain'],
+					'secure' => $params['secure'],
+					'httponly' => $params['httponly'],
+					'samesite' => $params['samesite'] ?? 'Lax',
+				]);
+			}
+			session_destroy();
+			sendAuthResponse(200, ['success' => true, 'message' => 'You have been signed out.']);
+
 		case 'register':
 			$email = validateAuthEmail($payload['email'] ?? null);
 			$password = validateAuthPassword($payload['password'] ?? null);
@@ -251,8 +250,14 @@ try {
 	session_regenerate_id(true);
 	$_SESSION['passenger'] = $user;
 	$_SESSION['passenger_id'] = $user['passenger_id'];
+	$_SESSION['full_name'] = $user['full_name'];
 	$_SESSION['role'] = $user['role'];
-	sendAuthResponse(200, ['success' => true, 'message' => 'Authentication successful.', 'user' => $user]);
+	sendAuthResponse(200, [
+		'success' => true,
+		'message' => 'Authentication successful.',
+		'passenger_id' => $user['passenger_id'],
+		'user' => $user,
+	]);
 } catch (JsonException $exception) {
 	sendAuthResponse(400, ['success' => false, 'error' => 'Request body must contain valid JSON.']);
 } catch (DomainException $exception) {

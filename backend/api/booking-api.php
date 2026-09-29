@@ -24,7 +24,7 @@ try {
 	require_once __DIR__ . '/../config/database-oracle.php';
 
 	if ($method === 'GET') {
-		$sql = 'SELECT tk.ticket_id, tk.trip_id, tk.passenger_id, tk.seat_number, '
+		$sql = 'SELECT tk.ticket_id, tk.trip_id, tk.passenger_id, tk.seat_number, tr.status AS trip_status, '
 			. 'TO_CHAR(tk.booking_date, \'YYYY-MM-DD"T"HH24:MI:SS\') AS booking_date, tk.fare, tk.status, '
 			. 'tr.route_id, tr.vehicle_id, '
 			. 'TO_CHAR(tr.departure_time, \'YYYY-MM-DD"T"HH24:MI:SS\') AS departure_time, '

@@ -10,6 +10,9 @@ $passengerInitial = strtoupper(substr(trim($passengerName), 0, 1));
 		<a class="<?= $activePage === 'dashboard' ? 'is-active' : '' ?>" href="dashboard.php"><span class="nav-index">01</span><span class="nav-label">Overview</span></a>
 		<a class="<?= $activePage === 'search' ? 'is-active' : '' ?>" href="search-trip.php"><span class="nav-index">02</span><span class="nav-label">Search trips</span></a>
 		<a class="<?= $activePage === 'bookings' ? 'is-active' : '' ?>" href="my-bookings.php"><span class="nav-index">03</span><span class="nav-label">My bookings</span></a>
+		<a class="<?= $activePage === 'payments' ? 'is-active' : '' ?>" href="payment.php"><span class="nav-index">04</span><span class="nav-label">Payments</span></a>
+		<a class="<?= $activePage === 'announcements' ? 'is-active' : '' ?>" href="announcements.php"><span class="nav-index">05</span><span class="nav-label">Travel updates</span></a>
+		<a class="<?= $activePage === 'feedback' ? 'is-active' : '' ?>" href="feedback.php"><span class="nav-index">06</span><span class="nav-label">Feedback</span></a>
 	</nav>
 	<div class="sidebar-bottom"><span class="sidebar-status"><i></i> All aboard</span><a href="../index.php">SmartMove home <span aria-hidden="true">↗</span></a><a href="../logout.php">Log out <span aria-hidden="true">↗</span></a></div>
 </aside>

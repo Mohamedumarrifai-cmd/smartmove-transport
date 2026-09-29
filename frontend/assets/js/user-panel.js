@@ -68,6 +68,7 @@ function setMessage(element, message, isError = true) {
 	if (!element) return;
 	element.textContent = message;
 	element.classList.toggle('is-error', isError);
+	element.classList.toggle('is-success', Boolean(message) && !isError);
 	if (!message) element.classList.remove('is-error');
 }
 
@@ -425,6 +426,155 @@ async function initBooking() {
 	});
 }
 
+function makeAnnouncementRow(announcement) {
+	const article = document.createElement('article');
+	article.className = 'announcement-row';
+	const meta = document.createElement('p');
+	meta.className = 'panel-eyebrow';
+	meta.textContent = announcement.publishedAt ? formatDate(announcement.publishedAt, { month: 'short', day: 'numeric', year: 'numeric' }) : 'SMARTMOVE UPDATE';
+	const title = document.createElement('h3');
+	title.textContent = announcement.title || 'Travel update';
+	const message = document.createElement('p');
+	message.className = 'announcement-copy';
+	message.textContent = announcement.message || '';
+	article.append(meta, title, message);
+	if (announcement.routeId) {
+		const route = document.createElement('span');
+		route.className = 'announcement-route';
+		route.textContent = `Route ${announcement.routeId}`;
+		article.append(route);
+	}
+	return article;
+}
+
+async function initAnnouncements() {
+	const list = document.querySelector('[data-announcement-list]');
+	const feedback = document.querySelector('[data-announcement-feedback]');
+	try {
+		const announcements = await requestJson('announcement-api.php?active=true&limit=100');
+		list.replaceChildren();
+		if (announcements.length === 0) {
+			const empty = document.createElement('p');
+			empty.className = 'empty-state';
+			empty.textContent = 'There are no active travel updates right now.';
+			list.append(empty);
+			return;
+		}
+		announcements.forEach((announcement) => list.append(makeAnnouncementRow(announcement)));
+	} catch (error) {
+		list.replaceChildren();
+		setMessage(feedback, error.message);
+	}
+}
+
+async function initFeedback() {
+	const form = document.querySelector('[data-feedback-form]');
+	const tripSelect = form.elements.trip;
+	const submitButton = form.querySelector('[data-feedback-submit]');
+	const message = document.querySelector('[data-feedback-message]');
+	try {
+		const bookings = await requestJson('booking-api.php');
+		const completed = bookings.filter((booking) => String(booking.trip_status).toUpperCase() === 'COMPLETED'
+			&& ['PAID', 'USED'].includes(String(booking.status).toUpperCase()));
+		tripSelect.replaceChildren();
+		if (completed.length === 0) {
+			tripSelect.add(new Option('No completed journeys to review yet', ''));
+			tripSelect.disabled = true;
+			submitButton.disabled = true;
+			setMessage(message, 'Feedback is available after a completed, paid journey.', false);
+			return;
+		}
+		tripSelect.add(new Option('Choose a completed journey', ''));
+		completed.forEach((booking) => {
+			const option = new Option(
+				`${booking.origin_city} to ${booking.destination_city} · ${formatDate(booking.departure_time)}`,
+				String(booking.ticket_id)
+			);
+			option.dataset.tripId = booking.trip_id;
+			option.dataset.routeId = booking.route_id;
+			option.dataset.vehicleId = booking.vehicle_id;
+			tripSelect.add(option);
+		});
+	} catch (error) {
+		tripSelect.replaceChildren(new Option('Your journeys could not be loaded', ''));
+		tripSelect.disabled = true;
+		submitButton.disabled = true;
+		setMessage(message, error.message);
+		return;
+	}
+
+	form.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		if (!form.reportValidity()) return;
+		const selected = tripSelect.selectedOptions[0];
+		submitButton.disabled = true;
+		setMessage(message, 'Sending your feedback…', false);
+		try {
+			await requestJson('feedback-api.php', {
+				method: 'POST',
+				body: JSON.stringify({
+					tripId: Number(selected.dataset.tripId),
+					routeId: Number(selected.dataset.routeId),
+					vehicleId: Number(selected.dataset.vehicleId),
+					rating: Number(form.elements.rating.value),
+					comments: form.elements.comments.value.trim(),
+				}),
+			});
+			form.reset();
+			tripSelect.value = '';
+			setMessage(message, 'Thanks for helping us improve your next journey.', false);
+		} catch (error) {
+			setMessage(message, error.message);
+		} finally {
+			submitButton.disabled = false;
+		}
+	});
+}
+
+function createPaymentRow(payment) {
+	const row = document.createElement('article');
+	row.className = 'payment-row';
+	const details = document.createElement('div');
+	details.className = 'payment-details';
+	const heading = document.createElement('strong');
+	heading.textContent = `Ticket #${payment.ticket_id}`;
+	const meta = document.createElement('span');
+	meta.textContent = `${String(payment.payment_method || 'Payment').replaceAll('_', ' ')} · ${formatDate(payment.paid_at, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+	details.append(heading, meta);
+	const amount = document.createElement('strong');
+	amount.className = 'payment-amount';
+	amount.textContent = formatFare(payment.amount);
+	const status = document.createElement('span');
+	status.className = 'payment-status';
+	status.textContent = String(payment.status || 'RECORDED').replaceAll('_', ' ');
+	row.append(details, amount, status);
+	return row;
+}
+
+async function initPayments() {
+	const list = document.querySelector('[data-payment-list]');
+	const count = document.querySelector('[data-payment-count]');
+	const feedback = document.querySelector('[data-payment-feedback]');
+	try {
+		const payments = await requestJson('payment-api.php');
+		payments.sort((first, second) => (parseOracleDate(second.paid_at)?.getTime() || 0) - (parseOracleDate(first.paid_at)?.getTime() || 0));
+		count.textContent = `${payments.length} RECORDS`;
+		list.replaceChildren();
+		if (payments.length === 0) {
+			const empty = document.createElement('div');
+			empty.className = 'payment-empty';
+			empty.textContent = 'No payment records yet. Your completed payments will appear here.';
+			list.append(empty);
+			return;
+		}
+		payments.forEach((payment) => list.append(createPaymentRow(payment)));
+	} catch (error) {
+		count.textContent = 'Unavailable';
+		list.replaceChildren();
+		setMessage(feedback, error.message);
+	}
+}
+
 function initSidebarToggle() {
 	const button = document.querySelector('[data-sidebar-toggle]');
 	const shell = document.querySelector('.panel-shell');
@@ -451,5 +601,14 @@ switch (document.body.dataset.page) {
 		break;
 	case 'bookings':
 		initBookingHistory();
+		break;
+	case 'announcements':
+		initAnnouncements();
+		break;
+	case 'feedback':
+		initFeedback();
+		break;
+	case 'payments':
+		initPayments();
 		break;
 }

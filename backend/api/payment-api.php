@@ -5,22 +5,33 @@ require_once __DIR__ . '/../helpers/oracle-crud.php';
 header('Content-Type: application/json; charset=utf-8');
 
 try {
-	require_once __DIR__ . '/../config/database-oracle.php';
 	$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 	if ($method === 'OPTIONS') {
 		http_response_code(204);
 		exit;
 	}
+	if (session_status() !== PHP_SESSION_ACTIVE) {
+		session_start();
+	}
+	$passenger = $_SESSION['passenger'] ?? null;
+	$passengerId = is_array($passenger)
+		? filter_var($passenger['passenger_id'] ?? null, FILTER_VALIDATE_INT)
+		: false;
+	if ($passengerId === false || $passengerId < 1) {
+		sendJsonResponse(401, ['success' => false, 'error' => 'Sign in to access your payments.']);
+	}
+	require_once __DIR__ . '/../config/database-oracle.php';
 
 	if ($method === 'GET') {
-		$sql = 'SELECT * FROM PAYMENT';
+		$sql = 'SELECT p.* FROM PAYMENT p JOIN TICKET tk ON tk.ticket_id = p.ticket_id WHERE tk.passenger_id = :passenger_id';
 		$id = $_GET['id'] ?? null;
 		if ($id !== null) {
 			$id = validateRecordId($id);
-			$sql .= ' WHERE payment_id = :id';
+			$sql .= ' AND p.payment_id = :id';
 		}
 		$statement = oci_parse($conn, $sql);
+		oci_bind_by_name($statement, ':passenger_id', $passengerId);
 		if ($id !== null) {
 			oci_bind_by_name($statement, ':id', $id);
 		}
@@ -59,6 +70,22 @@ try {
 	}
 
 	$ticketId = validateRecordId($payload['ticket_id']);
+	$ownershipStatement = @oci_parse($conn, 'SELECT ticket_id FROM TICKET WHERE ticket_id = :ticket_id AND passenger_id = :passenger_id');
+	if ($ownershipStatement === false) {
+		throw new RuntimeException('Ticket ownership check could not be prepared.');
+	}
+	oci_bind_by_name($ownershipStatement, ':ticket_id', $ticketId);
+	oci_bind_by_name($ownershipStatement, ':passenger_id', $passengerId);
+	if (!@oci_execute($ownershipStatement)) {
+		$error = oci_error($ownershipStatement);
+		oci_free_statement($ownershipStatement);
+		throw new RuntimeException($error['message'] ?? 'Ticket ownership check failed.');
+	}
+	$ownedTicket = oci_fetch_assoc($ownershipStatement);
+	oci_free_statement($ownershipStatement);
+	if ($ownedTicket === false) {
+		sendJsonResponse(404, ['success' => false, 'error' => 'Ticket was not found.']);
+	}
 	$amount = $payload['amount'];
 	if (!is_string($amount) && !is_int($amount) && !is_float($amount)) {
 		sendJsonResponse(400, ['success' => false, 'error' => 'Amount must be a positive number with at most two decimal places.']);

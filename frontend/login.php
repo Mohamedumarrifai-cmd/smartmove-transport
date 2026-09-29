@@ -1,7 +1,5 @@
 <?php
-if (session_status() !== PHP_SESSION_ACTIVE) {
-	session_start();
-}
+require_once __DIR__ . '/includes/session.php';
 if (isset($_SESSION['passenger'])) {
 	header('Location: index.php');
 	exit;

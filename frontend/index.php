@@ -1,7 +1,5 @@
 <?php
-if (session_status() !== PHP_SESSION_ACTIVE) {
-	session_start();
-}
+require_once __DIR__ . '/includes/session.php';
 $passenger = $_SESSION['passenger'] ?? null;
 $firstName = is_array($passenger) && isset($passenger['full_name'])
 	? explode(' ', trim($passenger['full_name']))[0]
