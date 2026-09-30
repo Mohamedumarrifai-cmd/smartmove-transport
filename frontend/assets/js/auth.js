@@ -32,12 +32,21 @@ document.querySelectorAll('[data-auth-form]').forEach((form) => {
 				throw new Error(result?.error || 'We could not complete authentication. Please try again.');
 			}
 
+			if (form.dataset.mode === 'register') {
+				message.textContent = 'Your account is ready. Taking you to sign in…';
+				message.classList.add('is-success');
+				button.classList.remove('is-loading');
+				button.classList.add('is-success');
+				buttonLabel.textContent = 'Account created';
+				button.querySelector('i').className = 'fa-solid fa-circle-check';
+				window.setTimeout(() => { window.location.assign('login.php'); }, 1500);
+				return;
+			}
+
 			message.textContent = `You’re in, ${result.user.full_name.split(' ')[0]}. Taking you home…`;
 			message.classList.add('is-success');
 			buttonLabel.textContent = 'Welcome aboard';
-			const destination = form.dataset.mode === 'register'
-				? 'user/dashboard.php'
-				: result.user.role === 'admin' ? 'admin/dashboard.php' : 'user/dashboard.php';
+			const destination = result.user.role === 'admin' ? 'admin/dashboard.php' : 'user/dashboard.php';
 			window.setTimeout(() => { window.location.assign(destination); }, 650);
 		} catch (error) {
 			message.textContent = error instanceof TypeError

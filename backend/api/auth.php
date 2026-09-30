@@ -96,6 +96,20 @@ function validatePassengerPhone(mixed $value): string
 	return $phone;
 }
 
+function logOracleConnectionFailure(Throwable $exception): void
+{
+	$logDirectory = __DIR__ . '/../logs';
+	if (!is_dir($logDirectory) && !@mkdir($logDirectory, 0750, true) && !is_dir($logDirectory)) {
+		error_log('Unable to create Oracle error log directory. ' . $exception->getMessage());
+		return;
+	}
+
+	$logLine = sprintf("[%s] %s%s", date('c'), $exception->getMessage(), PHP_EOL);
+	if (@file_put_contents($logDirectory . '/oracle-errors.log', $logLine, FILE_APPEND | LOCK_EX) === false) {
+		error_log('Unable to write Oracle error log. ' . $exception->getMessage());
+	}
+}
+
 function createPassenger(array $payload, mixed $connection): array
 {
 	$fullName = $payload['full_name'] ?? null;
@@ -231,10 +245,20 @@ try {
 		case 'register':
 			$email = validateAuthEmail($payload['email'] ?? null);
 			$password = validateAuthPassword($payload['password'] ?? null);
-			startAuthSession();
-			require __DIR__ . '/../config/database-oracle.php';
+			try {
+				require_once __DIR__ . '/../config/database-oracle.php';
+				$conn = getOracleConnection();
+			} catch (Throwable $exception) {
+				logOracleConnectionFailure($exception);
+				sendAuthResponse(500, ['success' => false, 'error' => $exception->getMessage()]);
+			}
 			$user = createPassenger($payload, $conn);
-			break;
+			sendAuthResponse(201, [
+				'success' => true,
+				'message' => 'Account created. Please sign in.',
+				'passenger_id' => $user['passenger_id'],
+				'user' => $user,
+			]);
 
 		case 'login':
 			$email = validateAuthEmail($payload['email'] ?? null);

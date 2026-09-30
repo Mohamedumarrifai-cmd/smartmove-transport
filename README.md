@@ -63,7 +63,7 @@ On Windows, download OCI8 and MongoDB PHP extension builds that match your PHP v
    SetEnv DB_MONGODB_DATABASE smartmove
    ```
 
-   The application reads these values in `backend/config/constants.php`. Oracle connects with an Easy Connect string built from host, port, and service name. Set `DB_ORACLE_CONNECTION_STRING` only when you need to override that default. The defaults target a local Oracle XE service named `XEPDB1` and a MongoDB database named `smartmove`. Do not commit real credentials.
+   The application reads these values in `backend/config/constants.php`. Oracle connects with an Easy Connect string built from host, port, and service name. `DB_ORACLE_SERVICE` is also accepted; the existing `DB_ORACLE_SERVICE_NAME` setting remains supported. The defaults target a local Oracle XE service named `XEPDB1` and a MongoDB database named `smartmove`. Do not commit real credentials.
 
 6. From the project root, install the MongoDB PHP library:
 

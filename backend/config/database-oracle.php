@@ -2,24 +2,54 @@
 
 require_once __DIR__ . '/constants.php';
 
-try {
-	if (!function_exists('oci_connect')) {
-		throw new RuntimeException('OCI8 is unavailable in this PHP runtime. Enable the OCI8 extension in the php.ini used by XAMPP and restart Apache.');
+// Return the request-wide cached Oracle connection, creating it only once.
+function getOracleConnection()
+{
+	// A static variable retains this connection across calls during the current PHP request.
+	static $connection = null;
+
+	// Reuse the live request connection instead of opening another Oracle session.
+	if ($connection !== null) {
+		return $connection;
 	}
 
-	// DB_ORACLE_CONNECTION_STRING uses Oracle Easy Connect; the charset keeps passenger names and emails in UTF-8.
-	$conn = @oci_connect(
-		DB_ORACLE_USERNAME,
-		DB_ORACLE_PASSWORD,
-		DB_ORACLE_CONNECTION_STRING,
-		DB_ORACLE_CHARSET
-	);
+	try {
+		// Fail with an actionable setup message before calling an unavailable OCI8 function.
+		if (!function_exists('oci_connect')) {
+			throw new Exception('OCI8 PHP extension is not enabled. Open D:\\xampp\\php\\php.ini and uncomment extension=oci8_19, then restart Apache.');
+		}
 
-	if ($conn === false) {
-		$error = oci_error();
-		throw new RuntimeException($error['message'] ?? 'Unknown Oracle connection error.');
+		// Read connection credentials from the project's centralized environment-aware constants.
+		$host = DB_ORACLE_HOST;
+		$port = DB_ORACLE_PORT;
+		$service = DB_ORACLE_SERVICE;
+		$username = DB_ORACLE_USERNAME;
+		$password = DB_ORACLE_PASSWORD;
+
+		// Build Oracle Easy Connect dynamically from host, port, and service name.
+		$connectionString = $host . ':' . $port . '/' . $service;
+
+		// Open the Oracle connection using the required UTF-8 database character set.
+		$connection = @oci_connect($username, $password, $connectionString, 'AL32UTF8');
+
+		// Convert OCI8's connection-level error into an exception with its original Oracle message.
+		if ($connection === false) {
+			$error = oci_error();
+			$message = is_array($error) ? (string) ($error['message'] ?? '') : '';
+			$oracleCode = is_array($error) ? (int) ($error['code'] ?? 0) : 0;
+			if (trim($message) === '') {
+				$message = 'Unknown Oracle connection error.';
+			}
+			throw new Exception($message, $oracleCode);
+		}
+
+		// Return the newly opened connection for the current request.
+		return $connection;
+	} catch (Throwable $exception) {
+		// Preserve the original message and cause so callers can report or log the exact failure.
+		throw new Exception($exception->getMessage(), (int) $exception->getCode(), $exception);
 	}
-} catch (Throwable $exception) {
-	error_log('Oracle database connection failed: ' . $exception->getMessage());
-	throw new RuntimeException('Oracle database connection failed. ' . $exception->getMessage(), 0, $exception);
 }
+
+// Preserve the legacy include contract used by existing APIs that reference the $conn variable.
+$conn = getOracleConnection();
