@@ -1,6 +1,7 @@
 -- Oracle 12c+ sequence-backed column defaults. Run after 01_tables.sql.
 -- Sample data uses explicit IDs 1-3; application-generated IDs begin at 1000.
 
+-- Sequence names match the defaults and application SQL below.
 CREATE SEQUENCE seq_vehicle_id     START WITH 1000 INCREMENT BY 1 NOCACHE NOCYCLE;
 CREATE SEQUENCE seq_driver_id      START WITH 1000 INCREMENT BY 1 NOCACHE NOCYCLE;
 CREATE SEQUENCE seq_route_id       START WITH 1000 INCREMENT BY 1 NOCACHE NOCYCLE;

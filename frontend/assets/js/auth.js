@@ -2,6 +2,7 @@ document.querySelectorAll('[data-auth-form]').forEach((form) => {
 	form.addEventListener('submit', async (event) => {
 		event.preventDefault();
 		const message = form.querySelector('[data-form-message]');
+		const errorDetails = form.querySelector('[data-error-details]');
 		const button = form.querySelector('button[type="submit"]');
 		const buttonLabel = form.querySelector('[data-button-label]');
 		const originalLabel = buttonLabel.textContent;
@@ -10,6 +11,10 @@ document.querySelectorAll('[data-auth-form]').forEach((form) => {
 
 		message.textContent = '';
 		message.classList.remove('is-error', 'is-success');
+		if (errorDetails) {
+			errorDetails.hidden = true;
+			errorDetails.open = false;
+		}
 		button.disabled = true;
 		button.classList.add('is-loading');
 		buttonLabel.textContent = form.dataset.mode === 'register' ? 'Creating account…' : 'Signing in…';
@@ -22,14 +27,11 @@ document.querySelectorAll('[data-auth-form]').forEach((form) => {
 				headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
 				body: JSON.stringify(formData),
 			});
-			let result;
-			if (!response.ok) {
-				const errorResult = await response.json().catch(() => null);
-				throw new Error(errorResult?.error || 'We could not complete authentication. Please try again.');
-			}
-			result = await response.json().catch(() => null);
-			if (result?.success !== true) {
-				throw new Error(result?.error || 'We could not complete authentication. Please try again.');
+			const result = await response.json().catch(() => null);
+			if (!response.ok || result?.success !== true) {
+				const error = new Error(result?.message || result?.error || 'We could not complete authentication. Please try again.');
+				error.response = result;
+				throw error;
 			}
 
 			if (form.dataset.mode === 'register') {
@@ -53,6 +55,13 @@ document.querySelectorAll('[data-auth-form]').forEach((form) => {
 				? 'The sign-in service could not be reached. Please try again shortly.'
 				: error.message;
 			message.classList.add('is-error');
+			const details = error.response;
+			if (errorDetails && details && (details.error_type || details.file || details.line)) {
+				errorDetails.querySelector('[data-error-type]').textContent = details.error_type || 'Unknown';
+				errorDetails.querySelector('[data-error-file]').textContent = details.file || 'Not provided';
+				errorDetails.querySelector('[data-error-line]').textContent = details.line ?? 'Not provided';
+				errorDetails.hidden = false;
+			}
 			button.disabled = false;
 			button.classList.remove('is-loading');
 			buttonLabel.textContent = originalLabel;

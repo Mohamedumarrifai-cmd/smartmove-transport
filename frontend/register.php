@@ -58,6 +58,10 @@ if (isset($_SESSION['passenger'])) {
 					<div class="field-control" data-reveal-field><input id="password" name="password" type="password" autocomplete="new-password" placeholder=" " minlength="8" maxlength="72" required data-strength-input><label for="password">Create password</label><i class="field-icon fa-solid fa-lock" aria-hidden="true"></i><button class="password-toggle" type="button" data-password-toggle aria-label="Show password" aria-pressed="false"><i class="fa-regular fa-eye" aria-hidden="true"></i></button><span class="field-underline"></span></div>
 					<div class="strength-meter" data-strength-meter role="progressbar" aria-label="Password strength" aria-valuemin="0" aria-valuemax="3" aria-valuenow="0" aria-valuetext="Use 8 to 72 characters."><span class="strength-track"><i data-strength-fill></i></span><span data-strength-label>Use 8 to 72 characters.</span></div>
 					<p class="form-message" data-form-message role="status" aria-live="polite"></p>
+					<details class="form-error-details" data-error-details hidden>
+						<summary>Details</summary>
+						<dl><dt>Error type</dt><dd data-error-type></dd><dt>File</dt><dd data-error-file></dd><dt>Line</dt><dd data-error-line></dd></dl>
+					</details>
 					<button class="submit-button" type="submit"><span data-button-label>Create account</span><i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
 				</form>
 				<div class="social-proof"><div class="avatar-stack" aria-hidden="true"><span>AK</span><span>JM</span><span>EF</span><span>+</span></div><p><strong>Join 500+ daily commuters</strong><small>making the move with SmartMove</small></p></div>

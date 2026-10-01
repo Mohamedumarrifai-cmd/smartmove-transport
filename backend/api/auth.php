@@ -1,309 +1,325 @@
 <?php
+/**
+ * SmartMove - Authentication API
+ * Handles passenger registration, login, and logout.
+ *
+ * Endpoint: backend/api/auth.php
+ * Method: POST (JSON body)
+ * Actions: register, login, logout
+ */
 
-header('Content-Type: application/json; charset=utf-8');
+// ============================================================
+// CORS HEADERS (must be set BEFORE any output)
+// ============================================================
+header('Content-Type: application/json; charset=UTF-8');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
+
+// Handle preflight OPTIONS request
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    echo json_encode(['success' => true]);
+    exit;
+}
+
+// ============================================================
+// INCLUDES
+// ============================================================
 require_once __DIR__ . '/../config/constants.php';
+require_once __DIR__ . '/../helpers/oracle-helper.php';
 
-function sendAuthResponse(int $statusCode, array $payload): never
+$GLOBALS['authSqlSnippet'] = null;
+
+// ============================================================
+// HELPER: Send JSON response
+// ============================================================
+function sendJson(int $statusCode, array $data): void
 {
-	http_response_code($statusCode);
-	echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-	exit;
+    http_response_code($statusCode);
+    if (($data['success'] ?? true) === false) {
+        $caller = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2)[1] ?? [];
+        $data['error_type'] = $data['error_type'] ?? 'ApplicationError';
+        $data['message'] = $data['message'] ?? $data['error'] ?? 'Request failed.';
+        $data['error'] = $data['error'] ?? $data['message'];
+        $data['file'] = $data['file'] ?? basename($caller['file'] ?? __FILE__);
+        $data['line'] = $data['line'] ?? ($caller['line'] ?? __LINE__);
+        $data['sql_snippet'] = $data['sql_snippet'] ?? ($GLOBALS['authSqlSnippet'] ?? null);
+        logAuthError(json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
 }
 
-function readAuthPayload(): array
+// ============================================================
+// HELPER: Log errors to file
+// ============================================================
+function logAuthError(string $message): void
 {
-	$rawPayload = file_get_contents('php://input');
-	$payload = json_decode($rawPayload, true, 512, JSON_THROW_ON_ERROR);
-	if (!is_array($payload) || !str_starts_with(ltrim($rawPayload), '{')) {
-		throw new InvalidArgumentException('Request body must be a JSON object.');
-	}
-	return $payload;
+    $logDir = __DIR__ . '/../logs';
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0777, true);
+    }
+    $logFile = $logDir . '/auth-error.log';
+    $timestamp = date('c');
+    @file_put_contents($logFile, "[$timestamp] $message" . PHP_EOL, FILE_APPEND | LOCK_EX);
 }
 
-function applyAuthCorsHeaders(): void
+function prepareAuthStatement(mixed $connection, string $sql): mixed
 {
-	$origin = $_SERVER['HTTP_ORIGIN'] ?? null;
-	if (!is_string($origin) || $origin === '') {
-		return;
-	}
-
-	$allowedOrigins = [];
-	$siteOrigin = parse_url(SITE_URL);
-	if (is_array($siteOrigin) && isset($siteOrigin['scheme'], $siteOrigin['host'])) {
-		$allowedOrigins[] = strtolower($siteOrigin['scheme'] . '://' . $siteOrigin['host'] . (isset($siteOrigin['port']) ? ':' . $siteOrigin['port'] : ''));
-	}
-	if (isset($_SERVER['HTTP_HOST'])) {
-		$requestScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-		$allowedOrigins[] = strtolower($requestScheme . '://' . $_SERVER['HTTP_HOST']);
-	}
-	$configuredOrigins = getenv('CORS_ALLOWED_ORIGINS');
-	if (is_string($configuredOrigins) && $configuredOrigins !== '') {
-		$allowedOrigins = array_merge($allowedOrigins, array_map('trim', explode(',', $configuredOrigins)));
-	}
-
-	if (!in_array(strtolower(rtrim($origin, '/')), array_map(static fn(string $value): string => strtolower(rtrim($value, '/')), $allowedOrigins), true)) {
-		sendAuthResponse(403, ['success' => false, 'error' => 'This origin is not allowed to access the authentication service.']);
-	}
-
-	header('Access-Control-Allow-Origin: ' . $origin);
-	header('Access-Control-Allow-Credentials: true');
-	header('Access-Control-Allow-Methods: POST, OPTIONS');
-	header('Access-Control-Allow-Headers: Content-Type, Accept');
-	header('Vary: Origin');
+    $GLOBALS['authSqlSnippet'] = $sql;
+    $statement = @oci_parse($connection, $sql);
+    if ($statement === false) {
+        $error = oci_error($connection);
+        throw new RuntimeException($error['message'] ?? 'Oracle could not prepare the SQL statement.', (int) ($error['code'] ?? 0));
+    }
+    return $statement;
 }
 
-function startAuthSession(): void
+function executeAuthStatement(mixed $statement, ?int $mode = null): void
 {
-	if (session_status() === PHP_SESSION_ACTIVE) {
-		return;
-	}
-
-	session_name(SESSION_NAME);
-	session_set_cookie_params(SESSION_COOKIE_PARAMS);
-	session_start();
+    $executionMode = $mode ?? OCI_COMMIT_ON_SUCCESS;
+    if (!@oci_execute($statement, $executionMode)) {
+        $error = oci_error($statement);
+        throw new RuntimeException($error['message'] ?? 'Oracle could not execute the SQL statement.', (int) ($error['code'] ?? 0));
+    }
 }
 
-function validateAuthEmail(mixed $value): string
+// ============================================================
+// HELPER: Read JSON input
+// ============================================================
+function getJsonInput(): array
 {
-	if (!is_string($value)) {
-		throw new InvalidArgumentException('Enter a valid email address.');
-	}
-	$email = strtolower(trim($value));
-	if (strlen($email) > 254 || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
-		throw new InvalidArgumentException('Enter a valid email address.');
-	}
-	return $email;
+    $raw = file_get_contents('php://input');
+    if (empty($raw)) {
+        return [];
+    }
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
 }
 
-function validateAuthPassword(mixed $value): string
-{
-	if (!is_string($value) || strlen($value) < 8 || strlen($value) > 72) {
-		throw new InvalidArgumentException('Password must be between 8 and 72 characters.');
-	}
-	return $value;
-}
-
-function validatePassengerPhone(mixed $value): string
-{
-	if (!is_string($value)) {
-		throw new InvalidArgumentException('Enter a valid phone number.');
-	}
-	$phone = trim($value);
-	$digits = preg_replace('/\D/', '', $phone);
-	if (strlen($phone) > 25 || strlen($digits) < 7 || strlen($digits) > 15 || !preg_match('/\A\+?[0-9][0-9\s().-]*\z/D', $phone)) {
-		throw new InvalidArgumentException('Enter a valid phone number.');
-	}
-	return $phone;
-}
-
-function logOracleConnectionFailure(Throwable $exception): void
-{
-	$logDirectory = __DIR__ . '/../logs';
-	if (!is_dir($logDirectory) && !@mkdir($logDirectory, 0750, true) && !is_dir($logDirectory)) {
-		error_log('Unable to create Oracle error log directory. ' . $exception->getMessage());
-		return;
-	}
-
-	$logLine = sprintf("[%s] %s%s", date('c'), $exception->getMessage(), PHP_EOL);
-	if (@file_put_contents($logDirectory . '/oracle-errors.log', $logLine, FILE_APPEND | LOCK_EX) === false) {
-		error_log('Unable to write Oracle error log. ' . $exception->getMessage());
-	}
-}
-
-function createPassenger(array $payload, mixed $connection): array
-{
-	$fullName = $payload['full_name'] ?? null;
-	if (!is_string($fullName) || trim($fullName) === '' || strlen(trim($fullName)) > 120) {
-		throw new InvalidArgumentException('Name is required and must be at most 120 characters.');
-	}
-	$fullName = trim($fullName);
-	$phone = validatePassengerPhone($payload['phone'] ?? null);
-	$email = validateAuthEmail($payload['email'] ?? null);
-	$password = validateAuthPassword($payload['password'] ?? null);
-
-	$check = @oci_parse($connection, 'SELECT passenger_id FROM PASSENGER WHERE LOWER(email) = :email');
-	if ($check === false) {
-		throw new RuntimeException('Passenger email check could not be prepared.');
-	}
-	oci_bind_by_name($check, ':email', $email, 254);
-	if (!@oci_execute($check)) {
-		$error = oci_error($check);
-		oci_free_statement($check);
-		throw new RuntimeException($error['message'] ?? 'Passenger email check failed.');
-	}
-	$existingPassenger = oci_fetch_assoc($check);
-	oci_free_statement($check);
-	if ($existingPassenger !== false) {
-		throw new DomainException('An account with that email already exists.');
-	}
-
-	$passwordHash = password_hash($password, PASSWORD_BCRYPT);
-	if (!is_string($passwordHash)) {
-		throw new RuntimeException('Password could not be secured.');
-	}
-	$statement = @oci_parse(
-		$connection,
-		'INSERT INTO PASSENGER (full_name, email, phone, password_hash) '
-		. 'VALUES (:full_name, :email, :phone, :password_hash) RETURNING passenger_id INTO :passenger_id'
-	);
-	if ($statement === false) {
-		throw new RuntimeException('Passenger account insert could not be prepared.');
-	}
-
-	oci_bind_by_name($statement, ':full_name', $fullName, 120);
-	oci_bind_by_name($statement, ':email', $email, 254);
-	oci_bind_by_name($statement, ':phone', $phone, 25);
-	oci_bind_by_name($statement, ':password_hash', $passwordHash, 255);
-	$passengerId = null;
-	oci_bind_by_name($statement, ':passenger_id', $passengerId, 40);
-
-	if (!@oci_execute($statement, OCI_COMMIT_ON_SUCCESS)) {
-		$error = oci_error($statement);
-		oci_free_statement($statement);
-		if ((int) ($error['code'] ?? 0) === 1) {
-			throw new DomainException('An account with that email already exists.');
-		}
-		throw new RuntimeException($error['message'] ?? 'Passenger account insert failed.');
-	}
-	oci_free_statement($statement);
-
-	return [
-		'passenger_id' => (int) $passengerId,
-		'full_name' => $fullName,
-		'email' => $email,
-		'role' => 'passenger',
-	];
-}
-
-function authenticatePassenger(string $email, string $password, mixed $connection): array
-{
-	$statement = @oci_parse(
-		$connection,
-		'SELECT passenger_id, full_name, email, password_hash, status '
-		. 'FROM PASSENGER WHERE LOWER(email) = :email'
-	);
-	if ($statement === false) {
-		throw new RuntimeException('Passenger login query could not be prepared.');
-	}
-	oci_bind_by_name($statement, ':email', $email, 254);
-	if (!@oci_execute($statement)) {
-		$error = oci_error($statement);
-		oci_free_statement($statement);
-		throw new RuntimeException($error['message'] ?? 'Passenger login query failed.');
-	}
-	$passenger = oci_fetch_assoc($statement);
-	oci_free_statement($statement);
-
-	if ($passenger === false || !password_verify($password, $passenger['PASSWORD_HASH']) || $passenger['STATUS'] !== 'ACTIVE') {
-		throw new DomainException('Email or password is incorrect.');
-	}
-
-	return [
-		'passenger_id' => (int) $passenger['PASSENGER_ID'],
-		'full_name' => $passenger['FULL_NAME'],
-		'email' => $passenger['EMAIL'],
-		'role' => 'passenger',
-	];
-}
-
-applyAuthCorsHeaders();
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-if ($method === 'OPTIONS') {
-	http_response_code(204);
-	exit;
-}
-if ($method !== 'POST') {
-	header('Allow: POST, OPTIONS');
-	sendAuthResponse(405, ['success' => false, 'error' => 'Method not allowed.']);
-}
-
+// ============================================================
+// MAIN LOGIC
+// ============================================================
 try {
-	$payload = readAuthPayload();
-	$action = $payload['action'] ?? $_POST['action'] ?? $_GET['action'] ?? null;
-	if (!is_string($action)) {
-		throw new InvalidArgumentException('Action must be login, register, or logout.');
-	}
+    // Get action from POST, GET, or JSON body
+    $input = getJsonInput();
+    $action = $input['action'] ?? $_POST['action'] ?? $_GET['action'] ?? '';
 
-	switch ($action) {
-		case 'logout':
-			startAuthSession();
-			$_SESSION = [];
-			if (ini_get('session.use_cookies')) {
-				$params = session_get_cookie_params();
-				setcookie(session_name(), '', [
-					'expires' => time() - 42000,
-					'path' => $params['path'],
-					'domain' => $params['domain'],
-					'secure' => $params['secure'],
-					'httponly' => $params['httponly'],
-					'samesite' => $params['samesite'] ?? 'Lax',
-				]);
-			}
-			session_destroy();
-			sendAuthResponse(200, ['success' => true, 'message' => 'You have been signed out.']);
+    if (empty($action)) {
+        sendJson(400, [
+            'success' => false,
+            'error_type' => 'ValidationError',
+            'message' => 'No action specified. Use action=register, login, or logout.'
+        ]);
+    }
 
-		case 'register':
-			$email = validateAuthEmail($payload['email'] ?? null);
-			$password = validateAuthPassword($payload['password'] ?? null);
-			try {
-				require_once __DIR__ . '/../config/database-oracle.php';
-				$conn = getOracleConnection();
-			} catch (Throwable $exception) {
-				logOracleConnectionFailure($exception);
-				sendAuthResponse(500, ['success' => false, 'error' => $exception->getMessage()]);
-			}
-			$user = createPassenger($payload, $conn);
-			sendAuthResponse(201, [
-				'success' => true,
-				'message' => 'Account created. Please sign in.',
-				'passenger_id' => $user['passenger_id'],
-				'user' => $user,
-			]);
+    // --------------------------------------------------------
+    // ACTION: REGISTER
+    // --------------------------------------------------------
+    if ($action === 'register') {
+        $fullName = trim($input['full_name'] ?? $_POST['full_name'] ?? '');
+        $phone    = trim($input['phone'] ?? $_POST['phone'] ?? '');
+        $email    = trim($input['email'] ?? $_POST['email'] ?? '');
+        $password = $input['password'] ?? $_POST['password'] ?? '';
 
-		case 'login':
-			$email = validateAuthEmail($payload['email'] ?? null);
-			$password = validateAuthPassword($payload['password'] ?? null);
-			startAuthSession();
-			require __DIR__ . '/../config/database-oracle.php';
-			$user = authenticatePassenger($email, $password, $conn);
-			break;
+        // Validate inputs
+        $errors = [];
+        if (empty($fullName)) $errors[] = 'Full name is required.';
+        if (empty($phone)) $errors[] = 'Phone number is required.';
+        if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = 'Valid email is required.';
+        if (strlen($password) < 8) $errors[] = 'Password must be at least 8 characters.';
 
-		default:
-			throw new InvalidArgumentException('Action must be login, register, or logout.');
-	}
+        if (!empty($errors)) {
+            sendJson(400, [
+                'success' => false,
+                'error_type' => 'ValidationError',
+                'message' => implode(' ', $errors)
+            ]);
+        }
 
-	session_regenerate_id(true);
-	$_SESSION['passenger'] = $user;
-	$_SESSION['passenger_id'] = $user['passenger_id'];
-	$_SESSION['full_name'] = $user['full_name'];
-	$_SESSION['role'] = $user['role'];
-	sendAuthResponse(200, [
-		'success' => true,
-		'message' => 'Authentication successful.',
-		'passenger_id' => $user['passenger_id'],
-		'user' => $user,
-	]);
-} catch (JsonException $exception) {
-	sendAuthResponse(400, ['success' => false, 'error' => 'Request body must contain valid JSON.']);
-} catch (DomainException $exception) {
-	$statusCode = $exception->getMessage() === 'An account with that email already exists.' ? 409 : 401;
-	sendAuthResponse($statusCode, ['success' => false, 'error' => $exception->getMessage()]);
-} catch (InvalidArgumentException $exception) {
-	sendAuthResponse(400, ['success' => false, 'error' => $exception->getMessage()]);
-} catch (Throwable $exception) {
-	error_log('Authentication API error: ' . $exception->getMessage());
-	$errorMessage = 'Authentication service is unavailable.';
-	if (str_starts_with($exception->getMessage(), 'Oracle database connection failed.')) {
-		$errorMessage = 'Database connection failed. Enable OCI8 in XAMPP and verify the DB_ORACLE_* settings.';
-	}
+        // Load the connection only inside the error-handled request path.
+        require_once __DIR__ . '/../config/database-oracle.php';
+        $conn = getOracleConnection();
 
-	if (filter_var(getenv('APP_DEBUG') ?: 'false', FILTER_VALIDATE_BOOLEAN)) {
-		$rootCause = $exception;
-		while ($rootCause->getPrevious() instanceof Throwable) {
-			$rootCause = $rootCause->getPrevious();
-		}
-		$errorMessage = $rootCause->getMessage();
-	}
+        // Check if PASSENGER table exists
+        if (!tableExists($conn, 'PASSENGER')) {
+            throw new RuntimeException('PASSENGER table does not exist. Please run database/oracle/01_tables.sql first.');
+        }
 
-	sendAuthResponse(500, ['success' => false, 'error' => $errorMessage]);
+        // Check if email already exists
+        $checkSql = 'SELECT COUNT(*) AS CNT FROM PASSENGER WHERE LOWER(email) = LOWER(:email)';
+        $checkStmt = prepareAuthStatement($conn, $checkSql);
+        try {
+            oci_bind_by_name($checkStmt, ':email', $email);
+            executeAuthStatement($checkStmt);
+            $checkRow = oci_fetch_assoc($checkStmt);
+        } finally {
+            oci_free_statement($checkStmt);
+        }
+
+        if ($checkRow && (int)$checkRow['CNT'] > 0) {
+            sendJson(409, [
+                'success' => false,
+                'error_type' => 'DuplicateError',
+                'message' => 'This email is already registered. Please login instead.'
+            ]);
+        }
+
+        // Hash the password
+        $passwordHash = password_hash($password, PASSWORD_BCRYPT);
+
+        // Insert new passenger
+        $insertSql = 'INSERT INTO PASSENGER (passenger_id, full_name, email, phone, password_hash)
+                      VALUES (seq_passenger_id.NEXTVAL, :full_name, :email, :phone, :password_hash)';
+        $insertStmt = prepareAuthStatement($conn, $insertSql);
+        try {
+            oci_bind_by_name($insertStmt, ':full_name', $fullName);
+            oci_bind_by_name($insertStmt, ':email', $email);
+            oci_bind_by_name($insertStmt, ':phone', $phone);
+            oci_bind_by_name($insertStmt, ':password_hash', $passwordHash);
+            executeAuthStatement($insertStmt);
+        } finally {
+            oci_free_statement($insertStmt);
+        }
+
+        sendJson(201, [
+            'success' => true,
+            'message' => 'Account created successfully! Please login.',
+            'data' => [
+                'full_name' => $fullName,
+                'email' => $email
+            ]
+        ]);
+    }
+
+    // --------------------------------------------------------
+    // ACTION: LOGIN
+    // --------------------------------------------------------
+    if ($action === 'login') {
+        $email    = trim($input['email'] ?? $_POST['email'] ?? '');
+        $password = $input['password'] ?? $_POST['password'] ?? '';
+
+        if (empty($email) || empty($password)) {
+            sendJson(400, [
+                'success' => false,
+                'error_type' => 'ValidationError',
+                'message' => 'Email and password are required.'
+            ]);
+        }
+
+        require_once __DIR__ . '/../config/database-oracle.php';
+        $conn = getOracleConnection();
+
+        if (!tableExists($conn, 'PASSENGER')) {
+            throw new RuntimeException('PASSENGER table does not exist. Please run database/oracle/01_tables.sql first.');
+        }
+
+        $sql = 'SELECT passenger_id, full_name, email, password_hash
+                FROM PASSENGER WHERE LOWER(email) = LOWER(:email)';
+        $stmt = prepareAuthStatement($conn, $sql);
+        try {
+            oci_bind_by_name($stmt, ':email', $email);
+            executeAuthStatement($stmt);
+            $user = oci_fetch_assoc($stmt);
+        } finally {
+            oci_free_statement($stmt);
+        }
+
+        if (!$user) {
+            sendJson(401, [
+                'success' => false,
+                'error_type' => 'AuthError',
+                'message' => 'Invalid email or password.'
+            ]);
+        }
+
+        if (!password_verify($password, $user['PASSWORD_HASH'])) {
+            sendJson(401, [
+                'success' => false,
+                'error_type' => 'AuthError',
+                'message' => 'Invalid email or password.'
+            ]);
+        }
+
+        // Start session
+        if (session_status() === PHP_SESSION_NONE) {
+            session_name(SESSION_NAME);
+            session_set_cookie_params(SESSION_COOKIE_PARAMS);
+            session_start();
+        }
+        $passenger = [
+            'passenger_id' => (int) $user['PASSENGER_ID'],
+            'full_name' => $user['FULL_NAME'],
+            'email' => $user['EMAIL'],
+            'role' => 'passenger'
+        ];
+        $_SESSION['passenger'] = $passenger;
+        $_SESSION['passenger_id'] = $user['PASSENGER_ID'];
+        $_SESSION['full_name']    = $user['FULL_NAME'];
+        $_SESSION['email']        = $user['EMAIL'];
+        $_SESSION['role']         = 'passenger';
+        session_regenerate_id(true);
+
+        sendJson(200, [
+            'success' => true,
+            'message' => 'Login successful.',
+            'user' => $passenger,
+            'data' => [
+                'passenger_id' => $user['PASSENGER_ID'],
+                'full_name'    => $user['FULL_NAME'],
+                'email'        => $user['EMAIL'],
+                'role'         => 'passenger',
+                'redirect'     => 'user/dashboard.php'
+            ]
+        ]);
+    }
+
+    // --------------------------------------------------------
+    // ACTION: LOGOUT
+    // --------------------------------------------------------
+    if ($action === 'logout') {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_name(SESSION_NAME);
+            session_set_cookie_params(SESSION_COOKIE_PARAMS);
+            session_start();
+        }
+        session_unset();
+        session_destroy();
+
+        sendJson(200, [
+            'success' => true,
+            'message' => 'Logged out successfully.'
+        ]);
+    }
+
+    // --------------------------------------------------------
+    // Unknown action
+    // --------------------------------------------------------
+    sendJson(400, [
+        'success' => false,
+        'error_type' => 'ValidationError',
+        'message' => "Unknown action: '$action'. Use register, login, or logout."
+    ]);
+
+} catch (Throwable $e) {
+	$message = $e->getMessage();
+        if (str_contains($message, 'PASSENGER table does not exist')) {
+            $errorType = 'SchemaError';
+        } elseif (preg_match('/ORA-\d{5}/i', $message) === 1 || (int) $e->getCode() > 0) {
+            $errorType = 'OracleError';
+        } else {
+            $errorType = get_class($e);
+        }
+
+	// Return the exact exception location and SQL for actionable debugging.
+    sendJson(500, [
+        'success' => false,
+        'error_type' => $errorType,
+        'message' => $message,
+        'error' => $message,
+        'file' => basename($e->getFile()),
+        'line' => $e->getLine(),
+        'sql_snippet' => $GLOBALS['authSqlSnippet'] ?? null
+    ]);
 }

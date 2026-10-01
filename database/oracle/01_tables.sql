@@ -145,3 +145,6 @@ CREATE TABLE FEEDBACK (
 	CONSTRAINT uq_feedback_passenger_trip UNIQUE (passenger_id, trip_id),
 	CONSTRAINT ck_feedback_rating CHECK (rating BETWEEN 1 AND 5)
 );
+
+
+SELECT table_name FROM user_tables ORDER BY table_name;

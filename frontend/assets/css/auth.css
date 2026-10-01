@@ -112,6 +112,11 @@ body.auth-editorial { min-width: 320px; min-height: 100vh; min-height: 100svh; m
 .form-message.is-success { color: #1e5c3a; background: #d8f3df; }
 .form-message.is-success::before { display: grid; width: 22px; height: 22px; flex: 0 0 22px; place-items: center; border-radius: 50%; color: #fff; background: #2f855a; content: '\f00c'; font-family: 'Font Awesome 6 Free'; font-size: 10px; font-weight: 900; animation: success-pop 420ms var(--auth-ease) both; }
 .form-message:empty { display: none; }
+.form-error-details { margin: -3px 0 0; color: var(--auth-muted); font-size: 10px; }
+.form-error-details summary { width: fit-content; color: #8e522f; font-weight: 700; cursor: pointer; }
+.form-error-details dl { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin: 9px 0 0; padding: 10px 12px; border-left: 2px solid var(--auth-amber); background: rgba(255,255,255,.58); }
+.form-error-details dt { font-weight: 700; }
+.form-error-details dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .social-proof { display: flex; align-items: center; gap: 13px; margin-top: 26px; }
 .avatar-stack { display: flex; padding-left: 2px; }
 .avatar-stack span { display: grid; width: 26px; height: 26px; flex: 0 0 26px; place-items: center; margin-left: -3px; border: 2px solid var(--auth-paper); border-radius: 50%; color: #fff; background: #526e74; font-size: 7px; font-weight: 800; }
