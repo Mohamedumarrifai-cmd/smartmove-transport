@@ -40,17 +40,17 @@ $tripId = $tripId !== false && $tripId > 0 ? $tripId : null;
 						<div class="booking-progress" aria-label="Booking progress"><span class="booking-progress-step is-current" data-booking-progress="1" aria-current="step"><b>1</b><span>Choose seat</span></span><i></i><span class="booking-progress-step" data-booking-progress="2"><b>2</b><span>Review</span></span></div>
 						<form data-booking-form>
 							<section class="booking-step-panel is-active" data-booking-step="1" aria-labelledby="booking-step-one-title">
-								<p class="panel-eyebrow">STEP 1 OF 2</p><h2 id="booking-step-one-title">Choose your seat.</h2>
+								<p class="panel-eyebrow">STEP 1 OF 2</p><h2 id="booking-step-one-title">Choose your seats.</h2>
 								<p class="booking-helper">Booking as <strong><?= htmlspecialchars($passenger['full_name'], ENT_QUOTES, 'UTF-8') ?></strong>.</p>
-								<label class="floating-field"><span>Seat number</span><input id="seat-number" name="seat_number" type="number" min="1" step="1" value="1" required><span class="floating-suffix" aria-hidden="true">SEAT</span></label>
-								<p class="field-hint" data-seat-hint>Seat availability is confirmed when you book.</p>
+								<label class="floating-field"><span>Number of seats</span><select id="number-of-seats" name="number_of_seats" required><?php for ($numberOfSeats = 1; $numberOfSeats <= 6; $numberOfSeats++): ?><option value="<?= $numberOfSeats ?>"><?= $numberOfSeats ?> <?= $numberOfSeats === 1 ? 'seat' : 'seats' ?></option><?php endfor; ?></select><span class="floating-suffix" aria-hidden="true">SEATS</span></label>
+								<p class="field-hint" data-seat-hint>Seats are assigned when you confirm your booking.</p>
 								<button class="panel-button panel-button-coral booking-submit" type="button" data-booking-next>Review booking <span aria-hidden="true">&#8594;</span></button>
 							</section>
 							<section class="booking-step-panel" data-booking-step="2" aria-labelledby="booking-step-two-title" hidden>
 								<p class="panel-eyebrow">STEP 2 OF 2</p><h2 id="booking-step-two-title">Review your journey.</h2>
-								<div class="booking-review-list"><div><span>PASSENGER</span><strong><?= htmlspecialchars($passenger['full_name'], ENT_QUOTES, 'UTF-8') ?></strong></div><div><span>SELECTED SEAT</span><strong data-review-seat>Seat 1</strong></div><div><span>FARE</span><strong data-review-fare>—</strong></div><div><span>DEPARTURE</span><strong data-review-departure>—</strong></div></div>
-								<p class="booking-helper booking-confirm-note">Confirming will reserve the selected seat. Payment is handled separately.</p>
-								<div class="booking-step-actions"><button class="panel-button panel-button-quiet" type="button" data-booking-back><span aria-hidden="true">&#8592;</span> Change seat</button><button class="panel-button panel-button-coral" type="submit" data-booking-confirm>Confirm booking <span aria-hidden="true">&#8599;</span></button></div>
+								<div class="booking-review-list"><div><span>PASSENGER</span><strong><?= htmlspecialchars($passenger['full_name'], ENT_QUOTES, 'UTF-8') ?></strong></div><div><span>NUMBER OF SEATS</span><strong data-review-seats>1 seat</strong></div><div><span>FARE PER SEAT</span><strong data-review-fare>—</strong></div><div><span>DEPARTURE</span><strong data-review-departure>—</strong></div></div>
+								<p class="booking-helper booking-confirm-note">Confirming reserves the requested number of seats. Payment follows on the next page.</p>
+								<div class="booking-step-actions"><button class="panel-button panel-button-quiet" type="button" data-booking-back><span aria-hidden="true">&#8592;</span> Change selection</button><button class="panel-button panel-button-coral" type="submit" data-booking-confirm>Confirm booking <span aria-hidden="true">&#8599;</span></button></div>
 							</section>
 						</form>
 						<p class="booking-fineprint">Your confirmed ticket will appear in My bookings.</p>

@@ -2,6 +2,12 @@
 
 function sendJsonResponse(int $statusCode, array $payload): never
 {
+	if (!array_key_exists('message', $payload)) {
+		$payload['message'] = $payload['error'] ?? (!empty($payload['success']) ? 'Request completed.' : 'Request failed.');
+	}
+	if (!array_key_exists('data', $payload)) {
+		$payload['data'] = null;
+	}
 	http_response_code($statusCode);
 	header('Content-Type: application/json; charset=utf-8');
 	echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);

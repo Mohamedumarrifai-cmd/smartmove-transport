@@ -59,6 +59,13 @@ function formatFare(value) {
 		: 'Fare unavailable';
 }
 
+function formatRupees(value) {
+	const amount = Number(value);
+	return Number.isFinite(amount)
+		? `Rs. ${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(amount)}`
+		: 'Amount unavailable';
+}
+
 function departureIsUpcoming(trip) {
 	const departure = parseOracleDate(trip.departure_time);
 	return departure !== null && departure.getTime() > Date.now();
@@ -367,9 +374,11 @@ async function initBooking() {
 		document.querySelector('[data-booking-departure]').textContent = `${formatDate(trip.departure_time, { weekday: 'short', month: 'short', day: 'numeric' })} · ${formatTime(trip.departure_time)}`;
 		document.querySelector('[data-booking-arrival]').textContent = `${formatDate(trip.arrival_time, { weekday: 'short', month: 'short', day: 'numeric' })} · ${formatTime(trip.arrival_time)}`;
 		document.querySelector('[data-booking-fare]').textContent = formatFare(trip.fare);
-		const seatInput = document.querySelector('#seat-number');
-		seatInput.max = String(vehicle.capacity);
-		document.querySelector('[data-seat-hint]').textContent = `Choose a seat from 1 to ${vehicle.capacity}. Availability is confirmed when you book.`;
+		const seatCountInput = document.querySelector('#number-of-seats');
+		[...seatCountInput.options].forEach((option) => {
+			option.disabled = Number(option.value) > Number(vehicle.capacity);
+		});
+		document.querySelector('[data-seat-hint]').textContent = `Choose 1 to ${Math.min(6, Number(vehicle.capacity))} seats. Available seats are assigned when you book.`;
 		document.querySelector('[data-review-fare]').textContent = formatFare(trip.fare);
 		document.querySelector('[data-review-departure]').textContent = `${formatDate(trip.departure_time, { weekday: 'short', month: 'short', day: 'numeric' })} · ${formatTime(trip.departure_time)}`;
 		layout.hidden = false;
@@ -397,9 +406,10 @@ async function initBooking() {
 		});
 	};
 	form.querySelector('[data-booking-next]').addEventListener('click', () => {
-		const seatInput = form.elements.seat_number;
-		if (!seatInput.reportValidity()) return;
-		document.querySelector('[data-review-seat]').textContent = `Seat ${seatInput.value}`;
+		const seatCountInput = form.elements.number_of_seats;
+		if (!seatCountInput.reportValidity()) return;
+		const seatCount = Number(seatCountInput.value);
+		document.querySelector('[data-review-seats]').textContent = `${seatCount} ${seatCount === 1 ? 'seat' : 'seats'}`;
 		showBookingStep(2);
 	});
 	form.querySelector('[data-booking-back]').addEventListener('click', () => showBookingStep(1));
@@ -414,10 +424,17 @@ async function initBooking() {
 		try {
 			const data = await requestJson('booking-api.php', {
 				method: 'POST',
-				body: JSON.stringify({ trip_id: tripId, seat_number: Number(form.elements.seat_number.value) }),
+				body: JSON.stringify({
+					action: 'create_multi',
+					trip_id: tripId,
+					number_of_seats: Number(form.elements.number_of_seats.value),
+				}),
 			});
-			setMessage(feedback, `Seat reserved. Ticket #${data.ticket_id}. Opening your bookings…`, false);
-			window.setTimeout(() => { window.location.assign('my-bookings.php'); }, 750);
+			const ticketIds = data.ticket_ids.join(',');
+			setMessage(feedback, `${data.seats.length} ${data.seats.length === 1 ? 'seat' : 'seats'} reserved. Opening payment…`, false);
+			window.setTimeout(() => {
+				window.location.assign(`payment.php?tickets=${encodeURIComponent(ticketIds)}`);
+			}, 500);
 		} catch (error) {
 			setMessage(feedback, error.message);
 			button.disabled = false;
@@ -543,7 +560,7 @@ function createPaymentRow(payment) {
 	details.append(heading, meta);
 	const amount = document.createElement('strong');
 	amount.className = 'payment-amount';
-	amount.textContent = formatFare(payment.amount);
+	amount.textContent = formatRupees(payment.amount);
 	const status = document.createElement('span');
 	status.className = 'payment-status';
 	status.textContent = String(payment.status || 'RECORDED').replaceAll('_', ' ');
@@ -571,6 +588,90 @@ async function initPayments() {
 	} catch (error) {
 		count.textContent = 'Unavailable';
 		list.replaceChildren();
+		setMessage(feedback, error.message);
+	}
+}
+
+async function initPaymentCheckout() {
+	const page = document.body;
+	const ticketIds = page.dataset.ticketIds.split(',').filter(Boolean).map(Number);
+	const card = document.querySelector('[data-checkout-card]');
+	const feedback = document.querySelector('[data-checkout-feedback]');
+	const ticketList = document.querySelector('[data-checkout-tickets]');
+	const form = document.querySelector('[data-checkout-form]');
+	if (page.dataset.checkoutError || ticketIds.length === 0) return;
+
+	try {
+		const booking = await requestJson(`booking-api.php?tickets=${encodeURIComponent(ticketIds.join(','))}`);
+		const tickets = booking.tickets;
+		ticketList.replaceChildren();
+		tickets.forEach((ticket) => {
+			const row = document.createElement('div');
+			row.className = 'checkout-ticket-row';
+			const details = document.createElement('span');
+			details.textContent = `Ticket #${ticket.ticket_id} · Seat ${ticket.seat_number}`;
+			const fare = document.createElement('strong');
+			fare.textContent = formatRupees(ticket.fare);
+			row.append(details, fare);
+			ticketList.append(row);
+		});
+
+		const summary = document.createElement('p');
+		summary.className = 'checkout-total';
+		const farePerSeat = Number(tickets[0].fare);
+		summary.textContent = `${tickets.length} ${tickets.length === 1 ? 'seat' : 'seats'} × ${formatRupees(farePerSeat)} = ${formatRupees(booking.total_amount)}`;
+		ticketList.append(summary);
+		form.elements.amount.value = Number(booking.total_amount).toFixed(2);
+		card.hidden = false;
+	} catch (error) {
+		card.hidden = true;
+		setMessage(feedback, error.message);
+		return;
+	}
+
+	form.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		if (!form.reportValidity()) return;
+		const button = form.querySelector('[data-checkout-submit]');
+		button.disabled = true;
+		button.textContent = 'Processing…';
+		try {
+			const payment = await requestJson('payment-api.php?action=create', {
+				method: 'POST',
+				body: JSON.stringify({
+					ticket_ids: ticketIds,
+					amount: Number(form.elements.amount.value),
+					payment_method: form.elements.payment_method.value,
+				}),
+			});
+			window.location.assign(`payment-success.php?payment_id=${encodeURIComponent(payment.payment_id)}`);
+		} catch (error) {
+			setMessage(feedback, error.message);
+			button.disabled = false;
+			button.textContent = 'Confirm payment';
+		}
+	});
+}
+
+async function initPaymentReceipt() {
+	const page = document.body;
+	const paymentId = Number(page.dataset.paymentId);
+	const feedback = document.querySelector('[data-receipt-feedback]');
+	const receipt = document.querySelector('[data-payment-receipt]');
+	if (!Number.isInteger(paymentId) || paymentId < 1) {
+		setMessage(feedback, 'A valid payment reference is required.');
+		return;
+	}
+
+	try {
+		const payment = await requestJson(`payment-api.php?id=${encodeURIComponent(paymentId)}`);
+		document.querySelector('[data-receipt-amount]').textContent = formatRupees(payment.amount);
+		document.querySelector('[data-receipt-reference]').textContent = payment.transaction_reference || `SM-${payment.payment_id}`;
+		document.querySelector('[data-receipt-method]').textContent = String(payment.payment_method || '—').replaceAll('_', ' ');
+		document.querySelector('[data-receipt-time]').textContent = formatDate(payment.paid_at, { dateStyle: 'medium', timeStyle: 'short' });
+		document.querySelector('[data-receipt-payment-id]').textContent = payment.payment_id;
+		receipt.hidden = false;
+	} catch (error) {
 		setMessage(feedback, error.message);
 	}
 }
@@ -610,5 +711,11 @@ switch (document.body.dataset.page) {
 		break;
 	case 'payments':
 		initPayments();
+		break;
+	case 'payment-checkout':
+		initPaymentCheckout();
+		break;
+	case 'payment-success':
+		initPaymentReceipt();
 		break;
 }

@@ -19,17 +19,20 @@ try {
 		? filter_var($passenger['passenger_id'] ?? null, FILTER_VALIDATE_INT)
 		: false;
 	if ($passengerId === false || $passengerId < 1) {
-		sendJsonResponse(401, ['success' => false, 'error' => 'Sign in to access your payments.']);
+		sendJsonResponse(401, ['success' => false, 'message' => 'Sign in to access your payments.', 'error' => 'Sign in to access your payments.']);
 	}
 	require_once __DIR__ . '/../config/database-oracle.php';
 
 	if ($method === 'GET') {
-		$sql = 'SELECT p.* FROM PAYMENT p JOIN TICKET tk ON tk.ticket_id = p.ticket_id WHERE tk.passenger_id = :passenger_id';
+		$sql = 'SELECT p.payment_id, p.ticket_id, p.amount, p.payment_method, p.transaction_reference, p.status, '
+			. 'TO_CHAR(p.paid_at, \'YYYY-MM-DD"T"HH24:MI:SS\') AS paid_at '
+			. 'FROM PAYMENT p JOIN TICKET tk ON tk.ticket_id = p.ticket_id WHERE tk.passenger_id = :passenger_id';
 		$id = $_GET['id'] ?? null;
 		if ($id !== null) {
 			$id = validateRecordId($id);
 			$sql .= ' AND p.payment_id = :id';
 		}
+		$sql .= ' ORDER BY p.created_at DESC';
 		$statement = oci_parse($conn, $sql);
 		oci_bind_by_name($statement, ':passenger_id', $passengerId);
 		if ($id !== null) {
@@ -47,103 +50,158 @@ try {
 		oci_free_statement($statement);
 
 		if ($id !== null && $payments === []) {
-			sendJsonResponse(404, ['success' => false, 'error' => 'Payment not found.']);
+			sendJsonResponse(404, ['success' => false, 'message' => 'Payment not found.', 'error' => 'Payment not found.']);
 		}
-		sendJsonResponse(200, ['success' => true, 'data' => $id !== null ? $payments[0] : $payments]);
+		sendJsonResponse(200, [
+			'success' => true,
+			'message' => 'Payment details loaded.',
+			'data' => $id !== null ? $payments[0] : $payments,
+		]);
 	}
 
 	if ($method !== 'POST') {
 		header('Allow: GET, POST, OPTIONS');
-		sendJsonResponse(405, ['success' => false, 'error' => 'Method not allowed.']);
+		sendJsonResponse(405, ['success' => false, 'message' => 'Method not allowed.', 'error' => 'Method not allowed.']);
 	}
 
+	$action = $_GET['action'] ?? 'create';
+	if ($action !== 'create') {
+		sendJsonResponse(400, ['success' => false, 'message' => 'Unsupported payment action.', 'error' => 'Unsupported payment action.']);
+	}
 	$payload = readJsonPayload();
-	$allowedFields = ['ticket_id', 'amount', 'payment_method', 'transaction_reference'];
+	$allowedFields = ['ticket_ids', 'ticket_id', 'amount', 'payment_method', 'transaction_reference'];
 	$unknownFields = array_diff(array_keys($payload), $allowedFields);
 	if ($unknownFields !== []) {
-		sendJsonResponse(400, ['success' => false, 'error' => 'Unknown field: ' . reset($unknownFields)]);
+		sendJsonResponse(400, ['success' => false, 'message' => 'Unknown field: ' . reset($unknownFields), 'error' => 'Unknown field: ' . reset($unknownFields)]);
 	}
-	foreach (['ticket_id', 'amount', 'payment_method'] as $field) {
+	foreach (['amount', 'payment_method'] as $field) {
 		if (!array_key_exists($field, $payload) || $payload[$field] === '') {
-			sendJsonResponse(400, ['success' => false, 'error' => "Missing required field: {$field}"]);
+			sendJsonResponse(400, ['success' => false, 'message' => "Missing required field: {$field}", 'error' => "Missing required field: {$field}"]);
 		}
 	}
+	if (isset($payload['ticket_ids'])) {
+		if (!is_array($payload['ticket_ids']) || $payload['ticket_ids'] === [] || count($payload['ticket_ids']) > 6) {
+			sendJsonResponse(400, ['success' => false, 'message' => 'One to six ticket IDs are required.', 'error' => 'One to six ticket IDs are required.']);
+		}
+		$ticketIds = array_map('validateRecordId', $payload['ticket_ids']);
+	} elseif (isset($payload['ticket_id'])) {
+		$ticketIds = [validateRecordId($payload['ticket_id'])];
+	} else {
+		sendJsonResponse(400, ['success' => false, 'message' => 'At least one ticket ID is required.', 'error' => 'At least one ticket ID is required.']);
+	}
+	if (count(array_unique($ticketIds)) !== count($ticketIds)) {
+		sendJsonResponse(400, ['success' => false, 'message' => 'Ticket IDs must be unique.', 'error' => 'Ticket IDs must be unique.']);
+	}
 
-	$ticketId = validateRecordId($payload['ticket_id']);
-	$ownershipStatement = @oci_parse($conn, 'SELECT ticket_id FROM TICKET WHERE ticket_id = :ticket_id AND passenger_id = :passenger_id');
-	if ($ownershipStatement === false) {
-		throw new RuntimeException('Ticket ownership check could not be prepared.');
-	}
-	oci_bind_by_name($ownershipStatement, ':ticket_id', $ticketId);
-	oci_bind_by_name($ownershipStatement, ':passenger_id', $passengerId);
-	if (!@oci_execute($ownershipStatement)) {
-		$error = oci_error($ownershipStatement);
-		oci_free_statement($ownershipStatement);
-		throw new RuntimeException($error['message'] ?? 'Ticket ownership check failed.');
-	}
-	$ownedTicket = oci_fetch_assoc($ownershipStatement);
-	oci_free_statement($ownershipStatement);
-	if ($ownedTicket === false) {
-		sendJsonResponse(404, ['success' => false, 'error' => 'Ticket was not found.']);
-	}
 	$amount = $payload['amount'];
-	if (!is_string($amount) && !is_int($amount) && !is_float($amount)) {
-		sendJsonResponse(400, ['success' => false, 'error' => 'Amount must be a positive number with at most two decimal places.']);
+	if ((!is_string($amount) && !is_int($amount) && !is_float($amount))
+		|| !preg_match('/\A\d{1,8}(?:\.\d{1,2})?\z/D', (string) $amount)
+		|| (float) $amount <= 0
+	) {
+		sendJsonResponse(400, ['success' => false, 'message' => 'Amount must be a positive number with at most two decimal places.', 'error' => 'Amount must be a positive number with at most two decimal places.']);
 	}
-	$amount = (string) $amount;
-	if (!preg_match('/\A\d{1,8}(?:\.\d{1,2})?\z/D', $amount) || (float) $amount <= 0) {
-		sendJsonResponse(400, ['success' => false, 'error' => 'Amount must be a positive number with at most two decimal places.']);
-	}
+	$amount = number_format((float) $amount, 2, '.', '');
 
 	if (!is_string($payload['payment_method'])) {
-		sendJsonResponse(400, ['success' => false, 'error' => 'Payment method must be a string.']);
+		sendJsonResponse(400, ['success' => false, 'message' => 'Payment method must be a string.', 'error' => 'Payment method must be a string.']);
 	}
 	$paymentMethod = strtoupper(trim($payload['payment_method']));
 	$allowedMethods = ['CARD', 'CASH', 'BANK_TRANSFER', 'MOBILE_MONEY'];
 	if (!in_array($paymentMethod, $allowedMethods, true)) {
-		sendJsonResponse(400, ['success' => false, 'error' => 'Unsupported payment method.']);
+		sendJsonResponse(400, ['success' => false, 'message' => 'Unsupported payment method.', 'error' => 'Unsupported payment method.']);
 	}
 
 	$transactionReference = $payload['transaction_reference'] ?? null;
 	if ($transactionReference !== null && (!is_string($transactionReference) || strlen($transactionReference) > 100)) {
-		sendJsonResponse(400, ['success' => false, 'error' => 'Transaction reference must be a string of at most 100 characters.']);
+		sendJsonResponse(400, ['success' => false, 'message' => 'Transaction reference must be a string of at most 100 characters.', 'error' => 'Transaction reference must be a string of at most 100 characters.']);
+	}
+	if ($transactionReference === null || trim($transactionReference) === '') {
+		$transactionReference = 'SM-' . strtoupper(bin2hex(random_bytes(8)));
 	}
 
-	$statement = oci_parse($conn, 'BEGIN sp_process_payment(:ticket_id, :amount, :payment_method, :transaction_reference, :payment_id); END;');
-	oci_bind_by_name($statement, ':ticket_id', $ticketId);
-	oci_bind_by_name($statement, ':amount', $amount);
+	$ticketBinds = [];
+	foreach ($ticketIds as $index => $ticketId) {
+		$ticketBinds[] = ':ticket_' . $index;
+	}
+	$ticketSql = 'SELECT ticket_id, trip_id, fare, status FROM TICKET '
+		. 'WHERE passenger_id = :passenger_id AND ticket_id IN (' . implode(', ', $ticketBinds) . ') FOR UPDATE';
+	$ticketStatement = oci_parse($conn, $ticketSql);
+	oci_bind_by_name($ticketStatement, ':passenger_id', $passengerId);
+	foreach ($ticketIds as $index => $ticketId) {
+		oci_bind_by_name($ticketStatement, ':ticket_' . $index, $ticketIds[$index]);
+	}
+	if (!@oci_execute($ticketStatement)) {
+		$error = oci_error($ticketStatement);
+		throw new RuntimeException($error['message'] ?? 'Ticket details could not be checked.');
+	}
+	$tickets = [];
+	$totalAmount = 0.0;
+	$tripId = null;
+	while (($ticket = oci_fetch_assoc($ticketStatement)) !== false) {
+		$ticket = array_change_key_case($ticket, CASE_LOWER);
+		if (strtoupper($ticket['status']) !== 'BOOKED') {
+			oci_free_statement($ticketStatement);
+			sendJsonResponse(409, ['success' => false, 'message' => 'One or more tickets are not eligible for payment.', 'error' => 'One or more tickets are not eligible for payment.']);
+		}
+		if ($tripId !== null && (int) $ticket['trip_id'] !== $tripId) {
+			oci_free_statement($ticketStatement);
+			sendJsonResponse(422, ['success' => false, 'message' => 'All tickets in a payment must belong to the same trip.', 'error' => 'All tickets in a payment must belong to the same trip.']);
+		}
+		$tripId = (int) $ticket['trip_id'];
+		$totalAmount += (float) $ticket['fare'];
+		$tickets[(int) $ticket['ticket_id']] = $ticket;
+	}
+	oci_free_statement($ticketStatement);
+	if (count($tickets) !== count($ticketIds)) {
+		sendJsonResponse(404, ['success' => false, 'message' => 'One or more tickets were not found.', 'error' => 'One or more tickets were not found.']);
+	}
+	$totalAmount = number_format($totalAmount, 2, '.', '');
+	if ($amount !== $totalAmount) {
+		sendJsonResponse(422, ['success' => false, 'message' => 'Payment amount must match the total ticket fare.', 'error' => 'Payment amount must match the total ticket fare.']);
+	}
+
+	$firstTicketId = $ticketIds[0];
+	$paymentId = null;
+	$sql = 'BEGIN '
+		. 'INSERT INTO PAYMENT (payment_id, ticket_id, amount, payment_method, transaction_reference, status, paid_at) '
+		. 'VALUES (SEQ_PAYMENT_ID.NEXTVAL, :payment_ticket_id, :amount, :payment_method, :transaction_reference, \'COMPLETED\', SYSTIMESTAMP) '
+		. 'RETURNING payment_id INTO :payment_id; '
+		. 'UPDATE TICKET SET status = \'PAID\' WHERE passenger_id = :passenger_id '
+		. 'AND ticket_id IN (' . implode(', ', $ticketBinds) . '); '
+		. 'END;';
+	$statement = oci_parse($conn, $sql);
+	oci_bind_by_name($statement, ':payment_ticket_id', $firstTicketId);
+	oci_bind_by_name($statement, ':amount', $totalAmount);
 	oci_bind_by_name($statement, ':payment_method', $paymentMethod);
 	oci_bind_by_name($statement, ':transaction_reference', $transactionReference, 100);
-	$paymentId = null;
 	oci_bind_by_name($statement, ':payment_id', $paymentId, 40);
+	oci_bind_by_name($statement, ':passenger_id', $passengerId);
+	foreach ($ticketIds as $index => $ticketId) {
+		oci_bind_by_name($statement, ':ticket_' . $index, $ticketIds[$index]);
+	}
 
 	if (!@oci_execute($statement, OCI_COMMIT_ON_SUCCESS)) {
 		$error = oci_error($statement);
-		$businessErrors = [
-			1 => [409, 'Transaction reference has already been used.'],
-			20021 => [422, 'Ticket is not eligible for payment.'],
-			20022 => [422, 'Payment amount must match the ticket fare.'],
-			20023 => [409, 'Ticket has already been paid.'],
-			20024 => [404, 'Ticket was not found.'],
-		];
 		$code = (int) ($error['code'] ?? 0);
-		if (isset($businessErrors[$code])) {
-			[$status, $message] = $businessErrors[$code];
-			oci_free_statement($statement);
-			sendJsonResponse($status, ['success' => false, 'error' => $message]);
+		oci_free_statement($statement);
+		if ($code === 1) {
+			sendJsonResponse(409, ['success' => false, 'message' => 'Transaction reference has already been used.', 'error' => 'Transaction reference has already been used.']);
 		}
 		error_log('Payment API error: ' . ($error['message'] ?? 'Unknown Oracle error.'));
-		oci_free_statement($statement);
-		sendJsonResponse(500, ['success' => false, 'error' => 'Payment could not be processed.']);
+		sendJsonResponse(500, ['success' => false, 'message' => 'Payment could not be processed.', 'error' => 'Payment could not be processed.']);
 	}
 
 	oci_free_statement($statement);
-	sendJsonResponse(201, ['success' => true, 'data' => ['payment_id' => $paymentId]]);
+	sendJsonResponse(201, [
+		'success' => true,
+		'message' => 'Payment completed.',
+		'data' => ['payment_id' => $paymentId, 'ticket_ids' => $ticketIds, 'amount' => $totalAmount],
+	]);
 } catch (JsonException $exception) {
-	sendJsonResponse(400, ['success' => false, 'error' => 'Request body must contain valid JSON.']);
+	sendJsonResponse(400, ['success' => false, 'message' => 'Request body must contain valid JSON.', 'error' => 'Request body must contain valid JSON.']);
 } catch (InvalidArgumentException $exception) {
-	sendJsonResponse(400, ['success' => false, 'error' => $exception->getMessage()]);
+	sendJsonResponse(400, ['success' => false, 'message' => $exception->getMessage(), 'error' => $exception->getMessage()]);
 } catch (Throwable $exception) {
 	error_log('Payment API error: ' . $exception->getMessage());
-	sendJsonResponse(500, ['success' => false, 'error' => 'Payment operation failed.']);
+	sendJsonResponse(500, ['success' => false, 'message' => 'Payment operation failed.', 'error' => 'Payment operation failed.']);
 }
