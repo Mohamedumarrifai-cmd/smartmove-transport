@@ -297,7 +297,13 @@ function createBookingRow(booking) {
 	const statusName = String(booking.status || 'BOOKED').toLowerCase();
 	status.className = `booking-status status-${statusName}`;
 	status.textContent = String(booking.status || 'BOOKED').replaceAll('_', ' ');
-	row.append(route, date, seat, status);
+	const feedbackButton = document.createElement('button');
+	feedbackButton.className = 'panel-button panel-button-quiet booking-feedback-button';
+	feedbackButton.type = 'button';
+	feedbackButton.dataset.feedbackTripId = booking.trip_id;
+	feedbackButton.dataset.feedbackTripLabel = `${booking.origin_city} to ${booking.destination_city}`;
+	feedbackButton.textContent = 'Give feedback';
+	row.append(route, date, seat, status, feedbackButton);
 	return row;
 }
 
@@ -306,6 +312,14 @@ function initBookingHistory() {
 	const feedback = document.querySelector('[data-history-feedback]');
 	const count = document.querySelector('[data-history-count]');
 	const filters = [...document.querySelectorAll('[data-booking-filter]')];
+	const feedbackModalElement = document.querySelector('#trip-feedback-modal');
+	const feedbackForm = document.querySelector('[data-trip-feedback-form]');
+	const feedbackModal = window.bootstrap && feedbackModalElement
+		? window.bootstrap.Modal.getOrCreateInstance(feedbackModalElement)
+		: null;
+	let activeFeedbackTripId = null;
+	let activeFeedbackStatus = null;
+	let activeFeedbackId = null;
 	let bookings = [];
 	let activeFilter = 'all';
 
@@ -337,6 +351,104 @@ function initBookingHistory() {
 		});
 		render();
 	}));
+
+	list.addEventListener('click', async (event) => {
+		const button = event.target.closest('[data-feedback-trip-id]');
+		if (!button) return;
+		if (!feedbackModal) {
+			setMessage(feedback, 'Feedback form could not be opened. Reload the page and try again.');
+			return;
+		}
+
+		activeFeedbackTripId = Number(button.dataset.feedbackTripId);
+		activeFeedbackId = null;
+		activeFeedbackStatus = null;
+		const submitButton = feedbackForm.querySelector('[data-trip-feedback-submit]');
+		const modalMessage = document.querySelector('[data-trip-feedback-message]');
+		feedbackForm.reset();
+		submitButton.disabled = true;
+		submitButton.textContent = 'Loading…';
+		document.querySelector('[data-feedback-trip-label]').textContent = button.dataset.feedbackTripLabel;
+		setMessage(modalMessage, '');
+		feedbackModal.show();
+
+		try {
+			const details = await requestJson(`feedback-api.php?action=get&trip_id=${encodeURIComponent(activeFeedbackTripId)}`);
+			activeFeedbackStatus = details.trip_status_at_feedback;
+			const completed = activeFeedbackStatus === 'completed';
+			document.querySelector('[data-feedback-status-label]').textContent = `Trip status: ${activeFeedbackStatus.replaceAll('_', ' ')}`;
+			document.querySelector('[data-feedback-completed-fields]').hidden = !completed;
+			document.querySelector('[data-feedback-incomplete-fields]').hidden = completed;
+			feedbackForm.elements.rating.required = completed;
+			feedbackForm.elements.would_recommend.required = completed;
+			feedbackForm.elements.reason.required = !completed;
+			feedbackForm.elements.comment.required = !completed;
+
+			const savedFeedback = details.feedback;
+			if (savedFeedback) {
+				activeFeedbackId = savedFeedback._id;
+				button.textContent = 'Edit feedback';
+				if (completed) {
+					feedbackForm.elements.rating.value = savedFeedback.rating || '';
+					feedbackForm.elements.would_recommend.value = savedFeedback.would_recommend === true
+						? 'yes'
+						: savedFeedback.would_recommend === false ? 'no' : '';
+					feedbackForm.elements.highlights.value = savedFeedback.highlights || '';
+				} else {
+					feedbackForm.elements.optional_rating.value = savedFeedback.rating || '';
+					feedbackForm.elements.reason.value = savedFeedback.reason || '';
+				}
+				feedbackForm.elements.comment.value = savedFeedback.comment || '';
+			}
+			submitButton.textContent = savedFeedback ? 'Update feedback' : 'Save feedback';
+		} catch (error) {
+			setMessage(modalMessage, error.message);
+			submitButton.textContent = 'Save feedback';
+			submitButton.disabled = true;
+		} finally {
+			if (activeFeedbackStatus !== null) submitButton.disabled = false;
+		}
+	});
+
+	feedbackForm.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		if (!feedbackForm.reportValidity() || !activeFeedbackTripId || !activeFeedbackStatus) return;
+		const submitButton = feedbackForm.querySelector('[data-trip-feedback-submit]');
+		const completed = activeFeedbackStatus === 'completed';
+		const ratingValue = completed ? feedbackForm.elements.rating.value : feedbackForm.elements.optional_rating.value;
+		const payload = {
+			trip_id: activeFeedbackTripId,
+			rating: ratingValue ? Number(ratingValue) : null,
+			comment: feedbackForm.elements.comment.value.trim(),
+			reason: completed ? null : feedbackForm.elements.reason.value,
+			would_recommend: completed ? feedbackForm.elements.would_recommend.value === 'yes' : null,
+			highlights: completed ? feedbackForm.elements.highlights.value.trim() : '',
+		};
+		submitButton.disabled = true;
+		setMessage(document.querySelector('[data-trip-feedback-message]'), 'Saving feedback…', false);
+		try {
+			await requestJson(
+				activeFeedbackId
+					? `feedback-api.php?action=update&id=${encodeURIComponent(activeFeedbackId)}`
+					: 'feedback-api.php?action=create',
+				{
+					method: activeFeedbackId ? 'PUT' : 'POST',
+					body: JSON.stringify(payload),
+				}
+			);
+			list.querySelectorAll('[data-feedback-trip-id]').forEach((trigger) => {
+				if (Number(trigger.dataset.feedbackTripId) === activeFeedbackTripId) {
+					trigger.textContent = 'Edit feedback';
+				}
+			});
+			feedbackModal.hide();
+			setMessage(feedback, 'Trip feedback saved.', false);
+		} catch (error) {
+			setMessage(document.querySelector('[data-trip-feedback-message]'), error.message);
+		} finally {
+			submitButton.disabled = false;
+		}
+	});
 
 	requestJson('booking-api.php')
 		.then((data) => {
@@ -482,70 +594,6 @@ async function initAnnouncements() {
 		list.replaceChildren();
 		setMessage(feedback, error.message);
 	}
-}
-
-async function initFeedback() {
-	const form = document.querySelector('[data-feedback-form]');
-	const tripSelect = form.elements.trip;
-	const submitButton = form.querySelector('[data-feedback-submit]');
-	const message = document.querySelector('[data-feedback-message]');
-	try {
-		const bookings = await requestJson('booking-api.php');
-		const completed = bookings.filter((booking) => String(booking.trip_status).toUpperCase() === 'COMPLETED'
-			&& ['PAID', 'USED'].includes(String(booking.status).toUpperCase()));
-		tripSelect.replaceChildren();
-		if (completed.length === 0) {
-			tripSelect.add(new Option('No completed journeys to review yet', ''));
-			tripSelect.disabled = true;
-			submitButton.disabled = true;
-			setMessage(message, 'Feedback is available after a completed, paid journey.', false);
-			return;
-		}
-		tripSelect.add(new Option('Choose a completed journey', ''));
-		completed.forEach((booking) => {
-			const option = new Option(
-				`${booking.origin_city} to ${booking.destination_city} · ${formatDate(booking.departure_time)}`,
-				String(booking.ticket_id)
-			);
-			option.dataset.tripId = booking.trip_id;
-			option.dataset.routeId = booking.route_id;
-			option.dataset.vehicleId = booking.vehicle_id;
-			tripSelect.add(option);
-		});
-	} catch (error) {
-		tripSelect.replaceChildren(new Option('Your journeys could not be loaded', ''));
-		tripSelect.disabled = true;
-		submitButton.disabled = true;
-		setMessage(message, error.message);
-		return;
-	}
-
-	form.addEventListener('submit', async (event) => {
-		event.preventDefault();
-		if (!form.reportValidity()) return;
-		const selected = tripSelect.selectedOptions[0];
-		submitButton.disabled = true;
-		setMessage(message, 'Sending your feedback…', false);
-		try {
-			await requestJson('feedback-api.php', {
-				method: 'POST',
-				body: JSON.stringify({
-					tripId: Number(selected.dataset.tripId),
-					routeId: Number(selected.dataset.routeId),
-					vehicleId: Number(selected.dataset.vehicleId),
-					rating: Number(form.elements.rating.value),
-					comments: form.elements.comments.value.trim(),
-				}),
-			});
-			form.reset();
-			tripSelect.value = '';
-			setMessage(message, 'Thanks for helping us improve your next journey.', false);
-		} catch (error) {
-			setMessage(message, error.message);
-		} finally {
-			submitButton.disabled = false;
-		}
-	});
 }
 
 function createPaymentRow(payment) {
@@ -705,9 +753,6 @@ switch (document.body.dataset.page) {
 		break;
 	case 'announcements':
 		initAnnouncements();
-		break;
-	case 'feedback':
-		initFeedback();
 		break;
 	case 'payments':
 		initPayments();

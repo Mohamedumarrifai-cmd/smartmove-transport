@@ -235,7 +235,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .filter-tab.is-active { color: var(--panel-ink); background: var(--panel-white); box-shadow: 0 1px 4px rgba(24,39,34,.08); }
 .sort-label { color: #98a198; font-size: 9px; }
 .booking-list { border-top: 1px solid var(--panel-line); }
-.booking-row { display: grid; grid-template-columns: minmax(190px, 1.1fr) minmax(170px, .9fr) minmax(110px, .65fr) auto; align-items: center; gap: 18px; min-height: 112px; padding: 16px 8px; border-bottom: 1px solid var(--panel-line); }
+.booking-row { display: grid; grid-template-columns: minmax(190px, 1.1fr) minmax(170px, .9fr) minmax(110px, .65fr) auto auto; align-items: center; gap: 18px; min-height: 112px; padding: 16px 8px; border-bottom: 1px solid var(--panel-line); }
 .booking-route strong { display: block; font-family: var(--panel-display); font-size: 14px; font-weight: 600; }
 .booking-route small { display: block; margin-top: 6px; color: #849087; font-size: 9px; }
 .booking-date { color: #66736a; font-size: 10px; line-height: 1.6; }
@@ -243,10 +243,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .booking-seat { color: #849087; font-size: 9px; }
 .booking-seat strong { display: block; margin-top: 5px; color: var(--panel-ink); font-family: var(--panel-display); font-size: 12px; }
 .booking-status { justify-self: end; padding: 6px 8px; border-radius: 20px; color: #466e4d; background: #e0edd8; font-size: 8px; font-weight: 700; text-transform: uppercase; }
+.booking-feedback-button { min-height: 35px; padding: 0 11px; white-space: nowrap; }
 .booking-status.status-cancelled, .booking-status.status-refunded { color: #a34b36; background: #f7e1da; }
 .booking-status.status-used, .booking-status.status-completed { color: #65736b; background: #e4e8e1; }
 .booking-status.status-booked { color: #8e6a28; background: #f5edcf; }
 .booking-row-empty { padding: 45px 10px; color: #7f8b82; font-size: 11px; text-align: center; }
+.modal-content { border: 1px solid var(--panel-line); border-radius: 8px; color: var(--panel-ink); font-family: var(--panel-body); }
+.modal-header, .modal-footer { border-color: var(--panel-line); }
+.modal-title { color: var(--panel-ink); font-family: var(--panel-display); font-weight: 600; }
+.modal-body .form-label { color: var(--panel-ink); font-size: 11px; font-weight: 600; }
+.modal-body .form-select, .modal-body .form-control { font-size: 12px; }
+.modal-footer .btn-primary { border-color: var(--panel-ink); background: var(--panel-ink); }
+.modal-footer .btn-primary:hover { border-color: #24476f; background: #24476f; }
 
 .page-intro-line { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding: 4px 0 25px; border-bottom: 1px solid var(--panel-line); }
 .page-intro-line h2 { margin: 0; color: var(--panel-ink); font-family: var(--panel-display); font-size: 25px; font-weight: 600; }
@@ -387,6 +395,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 	.booking-date { grid-column: 1; grid-row: 2; }
 	.booking-seat { grid-column: 1; grid-row: 3; }
 	.booking-status { grid-column: 2; grid-row: 1; }
+	.booking-feedback-button { grid-column: 2; grid-row: 2 / 4; align-self: center; }
 	.booking-controls { align-items: flex-start; flex-direction: column; gap: 11px; }
 	.booking-page-intro h2 { font-size: 22px; }
 	.booking-count { font-size: 20px; }
